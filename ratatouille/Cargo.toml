@@ -8,8 +8,13 @@ anyhow = "1.0"
 bincode = "1.3.3"
 kinode_process_lib = { git = "https://github.com/kinode-dao/process_lib", rev = "84b3d84" }
 serde = { version = "1.0", features = ["derive"] }
+oauth2 = { version = "4.4.2", default-features = false }
 serde_json = "1.0"
 wit-bindgen = "0.24.0"
+url = "2.5.0"
+
+# ring/wasi clang error on mac's, https://github.com/briansmith/ring/issues/918#issuecomment-2077788925
+# ring = { version = "0.17.8", features = ["less-safe-getrandom-custom-or-rdrand"] }
 
 [lib]
 crate-type = ["cdylib"]
