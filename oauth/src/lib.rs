@@ -11,6 +11,8 @@ use oauth2::{
 };
 use serde::{Deserialize, Serialize};
 
+const SUCCESS_HTML: &[u8] = include_bytes!("../../pkg/oauth-ui/index.html");
+
 // still todo:
 // - website to dislay congrats, you're logged in, and your google token has been sent to your kinode,
 // {address}. Go back and finish the setup!
@@ -293,8 +295,17 @@ fn handle_message(
             return Err(anyhow::anyhow!("unexpected path: {:?}", req.path()?));
         }
 
-        let code = req.query_params().get("code").unwrap();
-        let state_str = req.query_params().get("state").unwrap();
+        let headers = HashMap::from([("Content-Type".to_string(), "text/html".to_string())]);
+        send_response(http::StatusCode::OK, Some(headers), SUCCESS_HTML.to_vec());
+
+        let code = req
+            .query_params()
+            .get("code")
+            .ok_or_else(|| anyhow::anyhow!("no code in query params"))?;
+        let state_str = req
+            .query_params()
+            .get("state")
+            .ok_or_else(|| anyhow::anyhow!("no state in query params"))?;
 
         if let Some((addr, verifier)) = state.exchanges.get_mut(state_str).cloned() {
             exchange_code(code, &addr, &verifier, state)?;
@@ -406,10 +417,10 @@ fn init(our: Address) {
     println!("begin, our: {:?}", our);
 
     // only bound for potential UI initialization
-    http::serve_index_html(&our, "/oauth-ui", false, false, vec!["/auth"]).unwrap();
     http::bind_http_path("/server", false, false).unwrap();
 
     // bound as the redirect path for successful auth!
+    // todo: better webpage serving too...
     http::bind_http_path("/auth", false, false).unwrap();
 
     let mut state = initialize();
