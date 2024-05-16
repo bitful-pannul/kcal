@@ -415,6 +415,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "kinode_process_lib",
+ "oauth2",
+ "serde",
+ "serde_json",
+ "url",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "const-hex"
 version = "1.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1276,20 +1290,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ratatouille"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bincode",
- "kinode_process_lib",
- "oauth2",
- "serde",
- "serde_json",
- "url",
- "wit-bindgen",
-]
-
-[[package]]
 name = "regex-syntax"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1483,6 +1483,20 @@ checksum = "af99884400da37c88f5e9146b7f1fd0fbcae8f6eec4e9da38b67d05486f814a6"
 dependencies = [
  "itoa",
  "serde",
+]
+
+[[package]]
+name = "server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "kinode_process_lib",
+ "oauth2",
+ "serde",
+ "serde_json",
+ "url",
+ "wit-bindgen",
 ]
 
 [[package]]

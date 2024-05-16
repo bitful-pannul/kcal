@@ -1,13 +1,26 @@
 [
     {
-        "process_name": "main",
-        "process_wasm_path": "/ratatouille.wasm",
+        "process_name": "server",
+        "process_wasm_path": "/server.wasm",
         "on_exit": "Restart",
         "request_networking": true,
         "request_capabilities": [
             "http_server:distro:sys",
             "vfs:distro:sys",
-	    "http_client:distro:sys"
+            "http_client:distro:sys"
+        ],
+        "grant_capabilities": [],
+        "public": true
+    },
+    {
+        "process_name": "client",
+        "process_wasm_path": "/client.wasm",
+        "on_exit": "Restart",
+        "request_networking": true,
+        "request_capabilities": [
+            "http_server:distro:sys",
+            "vfs:distro:sys",
+            "http_client:distro:sys"
         ],
         "grant_capabilities": [],
         "public": true
