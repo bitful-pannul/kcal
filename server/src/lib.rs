@@ -2,11 +2,13 @@ use std::collections::HashMap;
 
 use kinode::process::standard::get_state;
 use kinode_process_lib::http::send_response;
-use kinode_process_lib::{await_message, call_init, get_blob, http, println, Address, Response};
+use kinode_process_lib::{
+    await_message, call_init, get_blob, http, println, Address, Request, Response,
+};
 use oauth2::basic::BasicClient;
 use oauth2::{
-    AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, RedirectUrl, RefreshToken,
-    Scope, TokenUrl,
+    AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl,
+    RefreshToken, Scope, TokenUrl,
 };
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +21,7 @@ wit_bindgen::generate!({
 struct State {
     inner: OauthState,
     tokens: HashMap<Address, TokenMetadata>,
-    exchanges: HashMap<String, Address>,
+    exchanges: HashMap<String, (Address, PkceCodeVerifier)>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -72,20 +74,30 @@ fn generate_url(
 ) -> anyhow::Result<()> {
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
 
+    println!("redirect url: {:?}", client.redirect_url());
     let (auth_url, csrf_token) = client
         .authorize_url(CsrfToken::new_random)
         .add_scope(Scope::new(
             "https://www.googleapis.com/auth/calendar".to_string(),
         ))
         .add_extra_param("access_type", "offline")
+        .add_extra_param("prompt", "consent")
         .set_pkce_challenge(pkce_challenge)
         .url();
 
+    // NOTE here, we're adding the extra_param prompt:consent every time, which
+    // leads to every time user is redirected, needing consent.
+    // could be improved, and technically one shouldn't need this after initial consent,
+    // but in our usecase, ideally this should only happen once/not very often, as the UI is telegram.
+
     println!("Browse to: {}", auth_url);
+
+    println!("csrf token: {:?}", csrf_token.secret());
+    println!("pkce verifier: {:?}", pkce_verifier.secret());
 
     state
         .exchanges
-        .insert(pkce_verifier.secret().clone(), source.clone());
+        .insert(csrf_token.secret().clone(), (source.clone(), pkce_verifier));
 
     let _ = Response::new()
         .body(
@@ -109,7 +121,12 @@ fn generate_url(
 //
 // all client UI needs is generate_url() for auth. (this can be done again and again I think)?
 //
-fn exchange_code(code: &String, source: &Address, state: &State) -> anyhow::Result<()> {
+fn exchange_code(
+    code: &String,
+    source: &Address,
+    verifier: &PkceCodeVerifier,
+    state: &State,
+) -> anyhow::Result<()> {
     let mut headers = HashMap::new();
     headers.insert(
         "Content-Type".to_string(),
@@ -122,6 +139,7 @@ fn exchange_code(code: &String, source: &Address, state: &State) -> anyhow::Resu
         .append_pair("client_secret", &state.inner.client_secret)
         .append_pair("code", &code)
         .append_pair("redirect_uri", &state.inner.redirect_url)
+        .append_pair("code_verifier", &verifier.secret())
         .finish();
 
     let resp = http::send_request_await_response(
@@ -135,11 +153,23 @@ fn exchange_code(code: &String, source: &Address, state: &State) -> anyhow::Resu
     println!("resp: {:?}", resp);
 
     let resp_json_body: serde_json::Value = serde_json::from_slice(&resp.body())?;
+    println!("resp json body: {:?}", resp_json_body);
     let token = resp_json_body.get("access_token").unwrap().to_string();
     let refresh_token = resp_json_body.get("refresh_token").unwrap().to_string();
     let expires_in = resp_json_body.get("expires_in").unwrap().as_u64().unwrap();
 
     println!("resp json body: {:?}", resp_json_body);
+
+    let _ = Request::new()
+        .target(source)
+        .body(
+            serde_json::to_vec(&OauthResponse::Token {
+                token: token.to_string(),
+            })
+            .unwrap(),
+        )
+        .send();
+
     Ok(())
 }
 
@@ -170,8 +200,8 @@ fn handle_message(
         let code = req.query_params().get("code").unwrap();
         let state_str = req.query_params().get("state").unwrap();
 
-        if let Some(addr) = state.exchanges.get(state_str) {
-            exchange_code(code, addr, state)?;
+        if let Some((addr, verifier)) = state.exchanges.get(state_str) {
+            exchange_code(code, addr, verifier, state)?;
         } else {
             send_response(http::StatusCode::UNAUTHORIZED, None, vec![]);
             return Err(anyhow::anyhow!(
@@ -196,7 +226,7 @@ fn handle_message(
 fn initialize() -> State {
     // try to get saved state first, then wait for Initialize message either from
     // http or command line.
-
+    println!("trying to get state");
     match get_state() {
         Some(state) => {
             let state: State = serde_json::from_slice(&state).unwrap();
@@ -204,9 +234,11 @@ fn initialize() -> State {
         }
         None => {}
     }
+    println!("no state, waiting");
 
     loop {
         if let Ok(message) = await_message() {
+            println!("got message!");
             if message.source().process == "http_server:distro:sys" {
                 let msg: http::HttpServerRequest = serde_json::from_slice(message.body()).unwrap();
 
@@ -226,7 +258,9 @@ fn initialize() -> State {
                     };
                 }
             }
+            println!("trying deserialize");
             if let Ok(init) = serde_json::from_slice::<Initialize>(message.body()) {
+                println!("got init!");
                 return State {
                     inner: OauthState {
                         client_id: init.client_id,
@@ -250,6 +284,7 @@ fn create_oauth_client(state: &State) -> Result<BasicClient, url::ParseError> {
         AuthUrl::new(state.inner.auth_url.clone())?,
         Some(TokenUrl::new(state.inner.token_url.clone())?),
     );
+    let client = client.set_redirect_uri(RedirectUrl::new(state.inner.redirect_url.clone())?);
     Ok(client)
 }
 
@@ -264,7 +299,7 @@ fn create_oauth_client(state: &State) -> Result<BasicClient, url::ParseError> {
 // server exchanges code for token, stores token, sends back to client <- actually can be sent with KINODE!
 call_init!(init);
 fn init(our: Address) {
-    println!("begin");
+    println!("begin, our: {:?}", our);
 
     // only bound for potential UI initialization
     http::bind_http_path("/server", false, false).unwrap();
@@ -273,7 +308,9 @@ fn init(our: Address) {
     http::bind_http_path("/auth", false, false).unwrap();
 
     let mut state = initialize();
+    println!("we got state!");
     let mut client = create_oauth_client(&state).unwrap();
+    println!("got client!");
 
     loop {
         match handle_message(&our, &mut state, &mut client) {

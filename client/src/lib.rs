@@ -40,7 +40,6 @@ struct OauthState {
 struct TokenMetadata {
     token_expiry: u64,
     token_scope: Vec<String>,
-    token_user: String,
     refresh_token: String,
 }
 
@@ -101,6 +100,65 @@ fn generate_url(
     Ok(())
 }
 
+fn refresh_access_token(
+    source: &Address,
+    refresh_token: &str,
+    state: &mut State,
+) -> anyhow::Result<()> {
+    let mut headers = HashMap::new();
+    headers.insert(
+        "Content-Type".to_string(),
+        "application/x-www-form-urlencoded".to_string(),
+    );
+
+    let body = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("grant_type", "refresh_token")
+        .append_pair("client_id", &state.inner.client_id)
+        .append_pair("client_secret", &state.inner.client_secret)
+        .append_pair("refresh_token", refresh_token)
+        .finish();
+
+    let resp = http::send_request_await_response(
+        http::Method::POST,
+        state.inner.token_url.parse().unwrap(),
+        Some(headers),
+        5,
+        body.into_bytes(),
+    )?;
+
+    println!("HTTP response: {:?}", resp);
+
+    let resp_json_body: serde_json::Value = serde_json::from_slice(&resp.body())?;
+    let new_access_token = resp_json_body.get("access_token").unwrap().to_string();
+    let new_refresh_token = resp_json_body
+        .get("refresh_token")
+        .map_or_else(|| refresh_token.to_string(), |v| v.to_string());
+    let new_expires_in = resp_json_body.get("expires_in").unwrap().as_u64().unwrap();
+
+    println!("Response JSON body: {:?}", resp_json_body);
+
+    state.tokens.insert(
+        source.clone(),
+        TokenMetadata {
+            token_expiry: new_expires_in,
+            token_scope: vec![],
+            refresh_token: new_refresh_token,
+        },
+    );
+
+    let _ = Request::new()
+        .target(source)
+        .body(
+            serde_json::to_vec(&OauthResponse::Token {
+                token: new_access_token.to_string(),
+            })
+            .unwrap(),
+        )
+        .send();
+
+    Ok(())
+}
+
 // take other things in too. it's source + url? only? or should we separate the code...
 // well actually
 // this action. should come from the redirect ourselves.
@@ -141,17 +199,17 @@ fn exchange_code(code: &String, source: &Address, state: &State) -> anyhow::Resu
     let refresh_token = resp_json_body.get("refresh_token").unwrap().to_string();
     let expires_in = resp_json_body.get("expires_in").unwrap().as_u64().unwrap();
 
-    println!("resp json body: {:?}", resp_json_body);
+    println!("resp json exchange: {:?}", resp_json_body);
 
-    let _ = Request::new()
-        .target(source)
-        .body(
-            serde_json::to_vec(&OauthResponse::Token {
-                token: token.to_string(),
-            })
-            .unwrap(),
-        )
-        .send();
+    // let _ = Request::new()
+    //     .target(source)
+    //     .body(
+    //         serde_json::to_vec(&OauthResponse::Token {
+    //             token: token.to_string(),
+    //         })
+    //         .unwrap(),
+    //     )
+    //     .send();
 
     Ok(())
 }
@@ -184,7 +242,15 @@ fn handle_message(
         let state_str = req.query_params().get("state").unwrap();
 
         if let Some(addr) = state.exchanges.get(state_str) {
+            println!("exchanging code: {:?}", code);
             exchange_code(code, addr, state)?;
+
+            println!("exchanged code, let's try refreshing it.");
+            if let Some(token_metadata) = state.tokens.get(&message.source()) {
+                let refresh_token = token_metadata.refresh_token.clone();
+
+                refresh_access_token(&message.source(), &refresh_token, state)?;
+            }
         } else {
             send_response(http::StatusCode::UNAUTHORIZED, None, vec![]);
             return Err(anyhow::anyhow!(
@@ -200,7 +266,13 @@ fn handle_message(
         OauthRequest::GenerateUrl => {
             generate_url(message.source(), client, state)?;
         }
-        OauthRequest::RefreshToken => {}
+        OauthRequest::RefreshToken => {
+            if let Some(token_metadata) = state.tokens.get(&message.source()) {
+                let refresh_token = token_metadata.refresh_token.clone();
+
+                refresh_access_token(&message.source(), &refresh_token, state)?;
+            }
+        }
     }
 
     Ok(())
@@ -209,7 +281,7 @@ fn handle_message(
 fn initialize() -> State {
     // try to get saved state first, then wait for Initialize message either from
     // http or command line.
-
+    println!("trying to get state");
     match get_state() {
         Some(state) => {
             let state: State = serde_json::from_slice(&state).unwrap();
@@ -217,9 +289,11 @@ fn initialize() -> State {
         }
         None => {}
     }
+    println!("no state, waiting");
 
     loop {
         if let Ok(message) = await_message() {
+            println!("got message!");
             if message.source().process == "http_server:distro:sys" {
                 let msg: http::HttpServerRequest = serde_json::from_slice(message.body()).unwrap();
 
@@ -239,7 +313,9 @@ fn initialize() -> State {
                     };
                 }
             }
+            println!("trying deserialize");
             if let Ok(init) = serde_json::from_slice::<Initialize>(message.body()) {
+                println!("got init!");
                 return State {
                     inner: OauthState {
                         client_id: init.client_id,
@@ -277,7 +353,7 @@ fn create_oauth_client(state: &State) -> Result<BasicClient, url::ParseError> {
 // server exchanges code for token, stores token, sends back to client <- actually can be sent with KINODE!
 call_init!(init);
 fn init(our: Address) {
-    println!("begin");
+    println!("begin, our: {:?}", our);
 
     // only bound for potential UI initialization
     http::bind_http_path("/server", false, false).unwrap();
@@ -286,7 +362,9 @@ fn init(our: Address) {
     http::bind_http_path("/auth", false, false).unwrap();
 
     let mut state = initialize();
+    println!("we got state!");
     let mut client = create_oauth_client(&state).unwrap();
+    println!("got client!");
 
     loop {
         match handle_message(&our, &mut state, &mut client) {
