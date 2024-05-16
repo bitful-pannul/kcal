@@ -1050,6 +1050,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "oauth"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "kinode_process_lib",
+ "oauth2",
+ "serde",
+ "serde_json",
+ "url",
+ "wit-bindgen",
+]
+
+[[package]]
 name = "oauth2"
 version = "4.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1483,20 +1497,6 @@ checksum = "af99884400da37c88f5e9146b7f1fd0fbcae8f6eec4e9da38b67d05486f814a6"
 dependencies = [
  "itoa",
  "serde",
-]
-
-[[package]]
-name = "server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bincode",
- "kinode_process_lib",
- "oauth2",
- "serde",
- "serde_json",
- "url",
- "wit-bindgen",
 ]
 
 [[package]]

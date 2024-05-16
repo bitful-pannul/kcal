@@ -11,6 +11,10 @@ use oauth2::{
 };
 use serde::{Deserialize, Serialize};
 
+// still todo:
+// - website to dislay congrats, you're logged in, and your google token has been sent to your kinode,
+// {address}. Go back and finish the setup!
+// {maybe we put goggle calendar in there too?}
 wit_bindgen::generate!({
     path: "wit",
     world: "process",
@@ -173,6 +177,8 @@ fn refresh_access_token(
         )
         .send();
 
+    // todo, refactor into a better
+
     Ok(())
 }
 
@@ -326,7 +332,6 @@ fn handle_message(
 fn initialize() -> State {
     // try to get saved state first, then wait for Initialize message either from
     // http or command line.
-    println!("trying to get state");
     match get_state() {
         Some(state) => {
             let state: State = serde_json::from_slice(&state).unwrap();
@@ -334,7 +339,6 @@ fn initialize() -> State {
         }
         None => {}
     }
-    println!("no state, waiting");
 
     loop {
         if let Ok(message) = await_message() {
@@ -402,15 +406,14 @@ fn init(our: Address) {
     println!("begin, our: {:?}", our);
 
     // only bound for potential UI initialization
+    http::serve_index_html(&our, "/oauth-ui", false, false, vec!["/auth"]).unwrap();
     http::bind_http_path("/server", false, false).unwrap();
 
     // bound as the redirect path for successful auth!
     http::bind_http_path("/auth", false, false).unwrap();
 
     let mut state = initialize();
-    println!("we got state!");
     let mut client = create_oauth_client(&state).unwrap();
-    println!("got client!");
 
     loop {
         match handle_message(&our, &mut state, &mut client) {
