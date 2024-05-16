@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use kinode::process::standard::get_state;
 use kinode_process_lib::http::send_response;
-use kinode_process_lib::{await_message, call_init, get_blob, http, println, Address, Response};
+use kinode_process_lib::{
+    await_message, call_init, get_blob, http, println, Address, Request, Response,
+};
 use oauth2::basic::BasicClient;
 use oauth2::{
     AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, RedirectUrl, RefreshToken,
@@ -140,6 +142,17 @@ fn exchange_code(code: &String, source: &Address, state: &State) -> anyhow::Resu
     let expires_in = resp_json_body.get("expires_in").unwrap().as_u64().unwrap();
 
     println!("resp json body: {:?}", resp_json_body);
+
+    let _ = Request::new()
+        .target(source)
+        .body(
+            serde_json::to_vec(&OauthResponse::Token {
+                token: token.to_string(),
+            })
+            .unwrap(),
+        )
+        .send();
+
     Ok(())
 }
 
