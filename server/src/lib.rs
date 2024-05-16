@@ -7,8 +7,7 @@ use kinode_process_lib::{
 };
 use oauth2::basic::BasicClient;
 use oauth2::{
-    AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl,
-    RefreshToken, Scope, TokenUrl,
+    AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, TokenUrl,
 };
 use serde::{Deserialize, Serialize};
 
@@ -21,7 +20,7 @@ wit_bindgen::generate!({
 struct State {
     inner: OauthState,
     tokens: HashMap<Address, TokenMetadata>,
-    exchanges: HashMap<String, (Address, PkceCodeVerifier)>,
+    exchanges: HashMap<String, (Address, String)>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -40,7 +39,6 @@ struct OauthState {
 struct TokenMetadata {
     token_expiry: u64,
     token_scope: Vec<String>,
-    token_user: String,
     refresh_token: String,
 }
 
@@ -48,7 +46,7 @@ struct TokenMetadata {
 enum OauthRequest {
     GenerateUrl,
     RefreshToken,
-    // Exchange { code: String },
+    Exchange { code: String, state: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -74,7 +72,6 @@ fn generate_url(
 ) -> anyhow::Result<()> {
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
 
-    println!("redirect url: {:?}", client.redirect_url());
     let (auth_url, csrf_token) = client
         .authorize_url(CsrfToken::new_random)
         .add_scope(Scope::new(
@@ -95,14 +92,82 @@ fn generate_url(
     println!("csrf token: {:?}", csrf_token.secret());
     println!("pkce verifier: {:?}", pkce_verifier.secret());
 
-    state
-        .exchanges
-        .insert(csrf_token.secret().clone(), (source.clone(), pkce_verifier));
+    state.exchanges.insert(
+        csrf_token.secret().clone(),
+        (source.clone(), pkce_verifier.secret().clone()),
+    );
 
     let _ = Response::new()
         .body(
             serde_json::to_vec(&OauthResponse::Url {
                 url: auth_url.to_string(),
+            })
+            .unwrap(),
+        )
+        .send();
+
+    Ok(())
+}
+
+fn refresh_access_token(
+    source: &Address,
+    refresh_token: &str,
+    state: &mut State,
+) -> anyhow::Result<()> {
+    let mut headers = HashMap::new();
+    headers.insert(
+        "Content-Type".to_string(),
+        "application/x-www-form-urlencoded".to_string(),
+    );
+
+    let body = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("grant_type", "refresh_token")
+        .append_pair("client_id", &state.inner.client_id)
+        .append_pair("client_secret", &state.inner.client_secret)
+        .append_pair("refresh_token", refresh_token)
+        .finish();
+
+    let resp = http::send_request_await_response(
+        http::Method::POST,
+        state.inner.token_url.parse().unwrap(),
+        Some(headers),
+        5,
+        body.into_bytes(),
+    )?;
+
+    println!("HTTP response: {:?}", resp);
+
+    let resp_json_body: serde_json::Value = serde_json::from_slice(&resp.body())?;
+
+    println!("Response JSON body: {:?}", resp_json_body);
+    let new_access_token = resp_json_body
+        .get("access_token")
+        .ok_or_else(|| anyhow::anyhow!("Access token not found in response"))?
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid access token format"))?
+        .to_string();
+
+    let new_expires_in = resp_json_body
+        .get("expires_in")
+        .ok_or_else(|| anyhow::anyhow!("Expires in not found in response"))?
+        .as_u64()
+        .ok_or_else(|| anyhow::anyhow!("Invalid expires in format"))?;
+    println!("Response JSON body: {:?}", resp_json_body);
+
+    state.tokens.insert(
+        source.clone(),
+        TokenMetadata {
+            token_expiry: new_expires_in,
+            token_scope: vec![],
+            refresh_token: refresh_token.to_string(),
+        },
+    );
+
+    let _ = Request::new()
+        .target(source)
+        .body(
+            serde_json::to_vec(&OauthResponse::Token {
+                token: new_access_token.to_string(),
             })
             .unwrap(),
         )
@@ -124,8 +189,8 @@ fn generate_url(
 fn exchange_code(
     code: &String,
     source: &Address,
-    verifier: &PkceCodeVerifier,
-    state: &State,
+    verifier: &str,
+    state: &mut State,
 ) -> anyhow::Result<()> {
     let mut headers = HashMap::new();
     headers.insert(
@@ -139,7 +204,7 @@ fn exchange_code(
         .append_pair("client_secret", &state.inner.client_secret)
         .append_pair("code", &code)
         .append_pair("redirect_uri", &state.inner.redirect_url)
-        .append_pair("code_verifier", &verifier.secret())
+        .append_pair("code_verifier", &verifier)
         .finish();
 
     let resp = http::send_request_await_response(
@@ -154,11 +219,36 @@ fn exchange_code(
 
     let resp_json_body: serde_json::Value = serde_json::from_slice(&resp.body())?;
     println!("resp json body: {:?}", resp_json_body);
-    let token = resp_json_body.get("access_token").unwrap().to_string();
-    let refresh_token = resp_json_body.get("refresh_token").unwrap().to_string();
-    let expires_in = resp_json_body.get("expires_in").unwrap().as_u64().unwrap();
+    let token = resp_json_body
+        .get("access_token")
+        .ok_or_else(|| anyhow::anyhow!("Access token not found in response"))?
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid access token format"))?
+        .to_string();
 
-    println!("resp json body: {:?}", resp_json_body);
+    let refresh_token = resp_json_body
+        .get("refresh_token")
+        .ok_or_else(|| anyhow::anyhow!("Refresh token not found in response"))?
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid refresh token format"))?
+        .to_string();
+
+    let expires_in = resp_json_body
+        .get("expires_in")
+        .ok_or_else(|| anyhow::anyhow!("Expires in not found in response"))?
+        .as_u64()
+        .ok_or_else(|| anyhow::anyhow!("Invalid expires in format"))?;
+
+    println!("resp json exchange: {:?}", resp_json_body);
+    println!("inserting with source! {:?}", source);
+    state.tokens.insert(
+        source.clone(),
+        TokenMetadata {
+            token_expiry: expires_in,
+            token_scope: vec![],
+            refresh_token: refresh_token,
+        },
+    );
 
     let _ = Request::new()
         .target(source)
@@ -174,7 +264,7 @@ fn exchange_code(
 }
 
 fn handle_message(
-    our: &Address,
+    _our: &Address,
     state: &mut State,
     client: &mut BasicClient,
 ) -> anyhow::Result<()> {
@@ -200,8 +290,8 @@ fn handle_message(
         let code = req.query_params().get("code").unwrap();
         let state_str = req.query_params().get("state").unwrap();
 
-        if let Some((addr, verifier)) = state.exchanges.get(state_str) {
-            exchange_code(code, addr, verifier, state)?;
+        if let Some((addr, verifier)) = state.exchanges.get_mut(state_str).cloned() {
+            exchange_code(code, &addr, &verifier, state)?;
         } else {
             send_response(http::StatusCode::UNAUTHORIZED, None, vec![]);
             return Err(anyhow::anyhow!(
@@ -217,7 +307,17 @@ fn handle_message(
         OauthRequest::GenerateUrl => {
             generate_url(message.source(), client, state)?;
         }
-        OauthRequest::RefreshToken => {}
+        OauthRequest::RefreshToken => {
+            if let Some(token_metadata) = state.tokens.get(&message.source()) {
+                let refresh_token = token_metadata.refresh_token.clone();
+                refresh_access_token(&message.source(), &refresh_token, state)?;
+            }
+        }
+        OauthRequest::Exchange { .. } => {
+            // reason for this is, the http_redirect url needs to be defined at the start.
+            // so you can't really redirect to your own kinode that would do this.
+            println!("currently only available through http redirect");
+        }
     }
 
     Ok(())
