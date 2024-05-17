@@ -4,9 +4,10 @@ use std::str::FromStr;
 use chrono::{DateTime, Duration, Utc};
 use frankenstein::GetFileParams;
 use frankenstein::{ChatId, Message as TgMessage, SendMessageParams, UpdateContent};
+use kinode_process_lib::ProcessId;
 use kinode_process_lib::{
     await_message, call_init, get_blob, http, http::send_response, println, Address, Message,
-    Request, Response,
+    Request,
 };
 
 use llm_interface::openai::*;
@@ -41,8 +42,9 @@ struct State {
 #[derive(Debug, Serialize, Deserialize)]
 enum CalendarRequest {
     // forwarded/accepted to/from oauth kinode
-    GenerateUrl,
+    GenerateUrl { target: String },
     Token { token: String },
+    // temporary test commands
     GetToday,
     ListCalendars,
     Schedule,
@@ -50,6 +52,7 @@ enum CalendarRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum OauthResponse {
+    GenerateUrl,
     Url { url: String },
     RefreshToken { token: String },
     Error { error: String },
@@ -83,6 +86,42 @@ fn handle_http_message(state: &mut State, req: &http::HttpServerRequest) -> anyh
                     state: state.clone(),
                 })?,
             );
+            return Ok(());
+        } else if incoming.path()? == "/generate" {
+            let Some(blob) = get_blob() else {
+                return Err(anyhow::anyhow!("Failed to get blob"));
+            };
+            let json = serde_json::from_slice::<serde_json::Value>(&blob.bytes)?;
+
+            let target_str = json
+                .get("target")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("Failed to get target"))?;
+
+            let target = Address::new::<String, ProcessId>(
+                target_str.to_string(),
+                ProcessId::from_str("oauth:ratatouille:template.os")?,
+            );
+
+            println!("sending to target: {:?}", target);
+
+            let resp = Request::new()
+                .target(target)
+                .body(serde_json::to_vec(&OauthResponse::GenerateUrl)?)
+                .send_and_await_response(5)??;
+
+            let res = serde_json::from_slice::<OauthResponse>(resp.body())?;
+            println!("got res: {:?}", res);
+            if let OauthResponse::Url { url } = res {
+                println!("got url: {:?}", url);
+                let headers =
+                    HashMap::from([("Content-Type".to_string(), "application/json".to_string())]);
+                send_response(
+                    http::StatusCode::OK,
+                    Some(headers),
+                    serde_json::to_vec(&OauthResponse::Url { url })?,
+                );
+            }
         }
     }
 
@@ -96,20 +135,24 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
         if msg.source().node != our.node {
             return Err(anyhow::anyhow!("src not our in http message..."));
         }
-
         let req = serde_json::from_slice::<http::HttpServerRequest>(msg.body())?;
+
         handle_http_message(state, &req)?;
+        return Ok(());
     }
 
     match serde_json::from_slice::<CalendarRequest>(msg.body())? {
-        CalendarRequest::GenerateUrl => {
-            // choose a sane default.
-            let target: Address = "our@oauth:ratatouille:template.os".parse()?;
+        CalendarRequest::GenerateUrl { target } => {
+            // todo cleanup
+            let target: Address = Address::new::<String, ProcessId>(
+                target,
+                ProcessId::from_str("oauth:ratatouille:template.os")?,
+            );
 
             println!("got target: {:?}", target);
             let url = Request::new()
                 .target(target)
-                .body(serde_json::to_vec(&CalendarRequest::GenerateUrl)?)
+                .body(serde_json::to_vec(&OauthResponse::GenerateUrl)?)
                 .send_and_await_response(5)??;
 
             println!("got url message back..");
@@ -386,7 +429,9 @@ call_init!(init);
 fn init(our: Address) {
     println!("client begin");
 
-    http::bind_http_path("/", false, false).unwrap();
+    http::serve_index_html(&our, "client-ui/", true, false, vec!["/"]).unwrap();
+    http::bind_http_path("/status", true, false).unwrap();
+    http::bind_http_path("/generate", true, false).unwrap();
 
     let mut state = State { google_token: None };
 

@@ -3,115 +3,103 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GCAL</title>
-    <link rel="stylesheet" href="index.css">
-    <script>
-        async function submitKey() {
-
-            const response = await fetch('/client:ratatou:appattacc.os/submit_config', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(bodyData),
-            });
-            try {
-                const data = await response.json();
-                if (data.message === 'success') {
-                    document.getElementById('result').textContent = 'Success!';
-                } else {
-                    document.getElementById('result').textContent = 'Failed to submit key.';
-                }
-            } catch (error) {
-                console.error(error);
-                document.getElementById('result').textContent = 'Failed to submit key.';
-            }
+    <title>KinoGcal</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f4f4f9;
+            color: #333;
         }
 
-        async function fetchStatus() {
-            const response = await fetch('/client:ratatouille:template.os/status', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
-            });
-            try {
-                const data = await response.json();
-                if (data.telegram_key) {
-                    document.getElementById('telegramKey').value = data.telegram_key;
-                }
-                if (data.openai_key) {
-                    document.getElementById('openaiKey').value = data.openai_key;
-                }
-                if (data.groq_key) {
-                    document.getElementById('groqKey').value = data.groq_key;
-                }
-            } catch (error) {
-                console.error(error);
-                document.getElementById('result').textContent = 'Failed to fetch status.';
-            }
+        #status {
+            margin: 10px 0;
+            padding: 8px;
+            color: #d63031;
         }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            document.querySelectorAll('.tooltip').forEach(tooltip => {
-                console.log(tooltip)
-                tooltip.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    const tooltipText = tooltip.querySelector('.tooltiptext');
-                    console.log(tooltipText)
-                    tooltipText.classList.toggle('invisible');
-                });
-            });
+        input,
+        button {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            width: 300px;
+        }
 
-            fetchStatus()
-        });
-    </script>
+        button {
+            background-color: #0984e3;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+        }
+
+        button:hover {
+            background-color: #74b9ff;
+        }
+    </style>
 </head>
 
-<body class="h-screen w-screen overflow-hidden flex-col-center items-center justify-center gap-2">
-    <h1 class="mb-2">Telegram Bot Configuration</h1>
-    <div class="flex-center gap-2">
-        <input type="text" id="telegramKey" placeholder="Enter Telegram Bot API Key">
-        <button type="button" class="icon relative tooltip">
-            <span class="text-lg font-bold">?</span>
-            <span class="tooltiptext absolute invisible pointer-events-none">
-                <ul>
-                    <li>Open Telegram and search for "@BotFather".</li>
-                    <li>Start a conversation and type `/newbot`.</li>
-                    <li>Follow prompts to create a new bot.</li>
-                    <li>Securely copy the API key displayed.</li>
-                    <li>Paste the bot API key here.</li>
-                </ul>
-            </span>
-        </button>
-    </div>
-    <div class="flex-center gap-2">
-        <input type="text" id="openaiKey" placeholder="Enter OpenAI API Key (Optional)">
-        <button type="button" class="icon relative tooltip">
-            <span class="text-lg font-bold">?</span>
-            <span class="tooltiptext absolute invisible pointer-events-none">
-                <ul>
-                    <li>Visit OpenAI's signup page.</li>
-                    <li>Create an account and navigate to the API section.</li>
-                    <li>Click "New API Key" to generate a key.</li>
-                    <li>Set up billing.</li>
-                    <li>Securely copy the API key displayed.</li>
-                    <li>Paste the API key here.</li>
-                </ul>
-            </span>
-        </button>
-    </div>
-    <div class="flex-center gap-2">
-        <input type="text" id="groqKey" placeholder="Enter Groq API Key (Optional)">
-        <button type="button" class="icon relative tooltip">
-            <span class="text-lg font-bold">?</span>
-            <span class="tooltiptext absolute invisible pointer-events-none">Enter your Groq API Key here if you have
-                one.</span>
-        </button>
-    </div>
-    <button onclick="submitKey()">Submit</button>
-    <p id="result"></p>
+<body>
+    <h1>KinoGcal</h1>
+    <div id="status">Status: Disconnected</div>
+    <input type="text" id="targetName" value="fake.dev">
+    <button onclick="connect()">Connect</button>
+
+    <script>
+        const statusDiv = document.getElementById('status');
+        const targetInput = document.getElementById('targetName');
+
+        function updateStatus(connected) {
+            statusDiv.textContent = `Status: ${connected ? 'Connected' : 'Disconnected'}`;
+            statusDiv.style.color = connected ? '#2ecc71' : '#d63031'; // Green if connected, red if not
+        }
+
+        function pollStatus() {
+            fetch(`/client:ratatouille:template.os/status`)
+                .then(response => response.json())
+                .then(data => {
+                    // Check if the google_token is present and not empty
+                    if (data.State && data.State.state && data.State.state.google_token) {
+                        updateStatus(true);
+                    } else {
+                        updateStatus(false);
+                        setTimeout(pollStatus, 5000); // Poll every 5 seconds if not connected
+                    }
+                })
+                .catch(error => {
+                    console.error('Error polling status:', error);
+                    updateStatus(false);
+                    setTimeout(pollStatus, 5000);
+                });
+        }
+
+        function connect() {
+            const postData = {
+                target: targetInput.value
+            };
+
+            fetch(`/client:ratatouille:template.os/generate`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(postData)
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.Url && data.Url.url) {  // Access the nested URL object
+                        window.open(data.Url.url, '_blank');  // Use the nested URL for opening a new tab
+                        pollStatus();
+                    } else {
+                        throw new Error('URL not received in the expected format');
+                    }
+                })
+                .catch(error => console.error('Error connecting:', error));
+        }
+        pollStatus(); // Initial status check
+    </script>
 </body>
 
 </html>
