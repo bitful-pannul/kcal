@@ -66,14 +66,11 @@ enum CalendarResponse {
 }
 
 // plan:
-// flow, get goggle api key by signing in, and display it too.
-// keep redirect_url there, have a default kinode to contact, otherwise use another.
 // then spawn tg/groqAI.whisper?
 // then mirror tg interface?
 // then talk, implement context + basic gets for calendars.
 // maybe choose calendar to use in the beginning or something?
 
-// also, what about security with ze bot? setting a username?
 fn handle_http_message(state: &mut State, req: &http::HttpServerRequest) -> anyhow::Result<()> {
     if let http::HttpServerRequest::Http(incoming) = req {
         if incoming.path()? == "/status" {
@@ -103,17 +100,13 @@ fn handle_http_message(state: &mut State, req: &http::HttpServerRequest) -> anyh
                 ProcessId::from_str("oauth:ratatouille:template.os")?,
             );
 
-            println!("sending to target: {:?}", target);
-
             let resp = Request::new()
                 .target(target)
                 .body(serde_json::to_vec(&OauthResponse::GenerateUrl)?)
                 .send_and_await_response(5)??;
 
             let res = serde_json::from_slice::<OauthResponse>(resp.body())?;
-            println!("got res: {:?}", res);
             if let OauthResponse::Url { url } = res {
-                println!("got url: {:?}", url);
                 let headers =
                     HashMap::from([("Content-Type".to_string(), "application/json".to_string())]);
                 send_response(
@@ -149,13 +142,10 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
                 ProcessId::from_str("oauth:ratatouille:template.os")?,
             );
 
-            println!("got target: {:?}", target);
             let url = Request::new()
                 .target(target)
                 .body(serde_json::to_vec(&OauthResponse::GenerateUrl)?)
                 .send_and_await_response(5)??;
-
-            println!("got url message back..");
 
             let res = serde_json::from_slice::<OauthResponse>(url.body())?;
             match res {
@@ -168,7 +158,6 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
             }
         }
         CalendarRequest::Token { token } => {
-            println!("got token: {:?}", token);
             // verify if it's from the right place too.
             state.google_token = Some(token);
         }
@@ -294,7 +283,6 @@ pub fn subscribe() -> anyhow::Result<()> {
     let TgResponse::Ok = serde_json::from_slice::<TgResponse>(result.body())? else {
         return Err(anyhow::anyhow!("Failed to parse subscription response"));
     };
-    println!("Subscribed to telegram");
     Ok(())
 }
 
@@ -363,11 +351,9 @@ fn fetch_events_from_primary_calendar(
 
     let res = http::send_request_await_response(http::Method::GET, url, Some(headers), 5, body)?;
     let json: serde_json::Value = serde_json::from_slice(&res.body())?;
-    println!("events: {:?}", json);
 
     let events: gcal::Events = serde_json::from_slice(&res.body())?;
 
-    println!("got events!!!: {:?}", events.items.len());
     Ok(())
 }
 
@@ -393,37 +379,8 @@ fn list_calendars(token: &str) -> anyhow::Result<()> {
 
     let res = http::send_request_await_response(http::Method::GET, url, Some(headers), 5, body)?;
     let json: serde_json::Value = serde_json::from_slice(&res.body())?;
-    println!("calendars: {:?}", json);
     Ok(())
 }
-fn fetch_events_today(token: &str) -> anyhow::Result<()> {
-    let today = Utc::now().date_naive();
-    let url = format!(
-        "https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={}&timeMax={}",
-        today.and_hms_opt(0, 0, 0).unwrap(),
-        today.and_hms_opt(23, 59, 59).unwrap()
-    );
-    let headers = HashMap::from([
-        ("Authorization".to_string(), format!("Bearer {}", token)),
-        ("Content-Type".to_string(), "application/json".to_string()),
-    ]);
-    let body = Vec::new();
-
-    let resp = http::send_request_await_response(
-        http::Method::GET,
-        Url::from_str(&url)?,
-        Some(headers),
-        5,
-        body,
-    )?;
-    let json: serde_json::Value = serde_json::from_slice(&resp.body())?;
-    println!("events: {:?}", json);
-
-    // parse resp into somethings
-    Ok(())
-}
-
-// others
 
 call_init!(init);
 fn init(our: Address) {

@@ -13,10 +13,6 @@ use serde::{Deserialize, Serialize};
 
 const SUCCESS_HTML: &[u8] = include_bytes!("../../pkg/oauth-ui/index.html");
 
-// still todo:
-// - website to dislay congrats, you're logged in, and your google token has been sent to your kinode,
-// {address}. Go back and finish the setup!
-// {maybe we put goggle calendar in there too?}
 wit_bindgen::generate!({
     path: "wit",
     world: "process",
@@ -34,11 +30,8 @@ struct OauthState {
     client_id: String,
     client_secret: String,
     auth_url: String,
-    // auth_type: AuthType,
     token_url: String,
     redirect_url: String,
-    // introspection_url: Option<IntrospectionUrl>,
-    // revocation_url: Option<RevocationUrl>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -53,7 +46,6 @@ enum OauthRequest {
     GenerateUrl,
     RefreshToken,
     Exchange { code: String, state: String },
-    // sent as a request
     Token { token: String },
 }
 
@@ -96,9 +88,6 @@ fn generate_url(
     // but in our usecase, ideally this should only happen once/not very often, as the UI is telegram.
 
     println!("Browse to: {}", auth_url);
-
-    println!("csrf token: {:?}", csrf_token.secret());
-    println!("pkce verifier: {:?}", pkce_verifier.secret());
 
     state.exchanges.insert(
         csrf_token.secret().clone(),
@@ -143,11 +132,8 @@ fn refresh_access_token(
         body.into_bytes(),
     )?;
 
-    println!("HTTP response: {:?}", resp);
-
     let resp_json_body: serde_json::Value = serde_json::from_slice(&resp.body())?;
 
-    println!("Response JSON body: {:?}", resp_json_body);
     let new_access_token = resp_json_body
         .get("access_token")
         .ok_or_else(|| anyhow::anyhow!("Access token not found in response"))?
@@ -160,7 +146,6 @@ fn refresh_access_token(
         .ok_or_else(|| anyhow::anyhow!("Expires in not found in response"))?
         .as_u64()
         .ok_or_else(|| anyhow::anyhow!("Invalid expires in format"))?;
-    println!("Response JSON body: {:?}", resp_json_body);
 
     state.tokens.insert(
         source.clone(),
@@ -224,10 +209,8 @@ fn exchange_code(
         body.into_bytes(),
     )?;
 
-    println!("resp: {:?}", resp);
-
     let resp_json_body: serde_json::Value = serde_json::from_slice(&resp.body())?;
-    println!("resp json body: {:?}", resp_json_body);
+
     let token = resp_json_body
         .get("access_token")
         .ok_or_else(|| anyhow::anyhow!("Access token not found in response"))?
@@ -248,8 +231,6 @@ fn exchange_code(
         .as_u64()
         .ok_or_else(|| anyhow::anyhow!("Invalid expires in format"))?;
 
-    println!("resp json exchange: {:?}", resp_json_body);
-    println!("inserting with source! {:?}", source);
     state.tokens.insert(
         source.clone(),
         TokenMetadata {
@@ -317,6 +298,7 @@ fn handle_message(
                 state
             ));
         }
+        return Ok(());
     }
 
     let req: OauthRequest = serde_json::from_slice(message.body())?;
@@ -356,7 +338,6 @@ fn initialize() -> State {
 
     loop {
         if let Ok(message) = await_message() {
-            println!("got message!");
             if message.source().process == "http_server:distro:sys" {
                 let msg: http::HttpServerRequest = serde_json::from_slice(message.body()).unwrap();
 
@@ -376,9 +357,7 @@ fn initialize() -> State {
                     };
                 }
             }
-            println!("trying deserialize");
             if let Ok(init) = serde_json::from_slice::<Initialize>(message.body()) {
-                println!("got init!");
                 return State {
                     inner: OauthState {
                         client_id: init.client_id,
