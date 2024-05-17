@@ -13,8 +13,15 @@ serde_json = "1.0"
 wit-bindgen = "0.24.0"
 url = "2.5.0"
 
-# ring/wasi clang error on mac's, https://github.com/briansmith/ring/issues/918#issuecomment-2077788925
-# ring = { version = "0.17.8", features = ["less-safe-getrandom-custom-or-rdrand"] }
+llm_interface = { git = "https://github.com/kinode-dao/llm", branch = "interface"}
+stt_interface = { git = "https://github.com/kinode-dao/stt", branch = "interface"}
+telegram_interface = { git = "https://github.com/kinode-dao/telegram-bot/", branch = "zen/interface" }
+frankenstein = { version = "0.30", default-features = false, features = ["telegram-trait"] } 
+serde_derive = "1.0.202"
+chrono = "^0.4"
+chrono-tz = "^0.8"
+
+
 
 [lib]
 crate-type = ["cdylib"]

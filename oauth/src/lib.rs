@@ -53,12 +53,14 @@ enum OauthRequest {
     GenerateUrl,
     RefreshToken,
     Exchange { code: String, state: String },
+    // sent as a request
+    Token { token: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 enum OauthResponse {
     Url { url: String },
-    Token { token: String },
+    RefreshToken { token: String },
     Error { error: String },
 }
 
@@ -169,11 +171,10 @@ fn refresh_access_token(
         },
     );
 
-    let _ = Request::new()
-        .target(source)
+    let _ = Response::new()
         .body(
-            serde_json::to_vec(&OauthResponse::Token {
-                token: new_access_token.to_string(),
+            serde_json::to_vec(&OauthResponse::RefreshToken {
+                token: new_access_token,
             })
             .unwrap(),
         )
@@ -261,7 +262,7 @@ fn exchange_code(
     let _ = Request::new()
         .target(source)
         .body(
-            serde_json::to_vec(&OauthResponse::Token {
+            serde_json::to_vec(&OauthRequest::Token {
                 token: token.to_string(),
             })
             .unwrap(),
@@ -335,6 +336,8 @@ fn handle_message(
             // so you can't really redirect to your own kinode that would do this.
             println!("currently only available through http redirect");
         }
+        // todo handle.
+        _ => {}
     }
 
     Ok(())
@@ -414,7 +417,7 @@ fn create_oauth_client(state: &State) -> Result<BasicClient, url::ParseError> {
 // server exchanges code for token, stores token, sends back to client <- actually can be sent with KINODE!
 call_init!(init);
 fn init(our: Address) {
-    println!("begin, our: {:?}", our);
+    println!("oauth begin");
 
     // only bound for potential UI initialization
     http::bind_http_path("/server", false, false).unwrap();
