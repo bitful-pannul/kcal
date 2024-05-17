@@ -45,6 +45,7 @@ enum CalendarRequest {
     Token { token: String },
     GetToday,
     ListCalendars,
+    Schedule,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -137,6 +138,12 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
         CalendarRequest::ListCalendars => {
             if let Some(token) = &state.google_token {
                 list_calendars(token)?;
+            }
+        }
+        CalendarRequest::Schedule => {
+            if let Some(token) = &state.google_token {
+                let event = schedule_event("Test Event", "This is a test event", Utc::now(), 1)?;
+                add_event_to_calendar(token, &event)?;
             }
         }
     };
@@ -246,6 +253,54 @@ pub fn subscribe() -> anyhow::Result<()> {
     };
     println!("Subscribed to telegram");
     Ok(())
+}
+
+fn schedule_event(
+    summary: &str,
+    description: &str,
+    start_time: DateTime<Utc>,
+    duration_hours: i64,
+) -> anyhow::Result<gcal::Event> {
+    let end_time = start_time + Duration::hours(duration_hours);
+
+    let event = gcal::Event {
+        summary: Some(summary.to_string()),
+        description: Some(description.to_string()),
+        start: Some(gcal::EventCalendarDate {
+            date: None,
+            date_time: Some(start_time.to_rfc3339()),
+            time_zone: None,
+        }),
+        end: Some(gcal::EventCalendarDate {
+            date: None, // Set to None unless it's an all-day event
+            date_time: Some(end_time.to_rfc3339()),
+            time_zone: None,
+        }),
+        ..Default::default()
+    };
+    Ok(event)
+}
+
+fn add_event_to_calendar(token: &str, event: &gcal::Event) -> anyhow::Result<()> {
+    let url = Url::from_str("https://www.googleapis.com/calendar/v3/calendars/primary/events")?;
+    let headers = HashMap::from([
+        ("Authorization".to_string(), format!("Bearer {}", token)),
+        ("Content-Type".to_string(), "application/json".to_string()),
+    ]);
+
+    let body = serde_json::to_vec(event)?;
+    let res = http::send_request_await_response(http::Method::POST, url, Some(headers), 30, body)?;
+
+    if res.status().is_success() {
+        println!("Event created successfully.");
+        Ok(())
+    } else {
+        let err_msg = format!(
+            "Failed to create event: {}",
+            String::from_utf8_lossy(res.body())
+        );
+        Err(anyhow::anyhow!(err_msg))
+    }
 }
 
 fn fetch_events_from_primary_calendar(

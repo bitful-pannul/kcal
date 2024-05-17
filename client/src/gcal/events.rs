@@ -131,7 +131,7 @@ pub struct Event {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub working_location: Option<EventWorkingLocation>,
     #[serde(skip)]
-    query_string: QueryParams,
+    pub query_string: QueryParams,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
