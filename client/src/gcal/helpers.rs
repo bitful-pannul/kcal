@@ -4,7 +4,7 @@ use kinode_process_lib::http;
 use std::{collections::HashMap, str::FromStr};
 use url::Url;
 
-pub fn schedule_event(
+pub fn create_event(
     summary: &str,
     description: &str,
     start_time: DateTime<Utc>,
@@ -56,7 +56,7 @@ pub fn fetch_events_from_primary_calendar(
     token: &str,
     time_min: &str,
     time_max: &str,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Events> {
     let url = Url::from_str(&format!(
         "https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={}&timeMax={}",
         time_min, time_max
@@ -68,11 +68,13 @@ pub fn fetch_events_from_primary_calendar(
     let body = Vec::new(); // No body for GET request
 
     let res = http::send_request_await_response(http::Method::GET, url, Some(headers), 5, body)?;
-    let json: serde_json::Value = serde_json::from_slice(&res.body())?;
+
+    // pure json to_string might be better to give to model
+    let _json: serde_json::Value = serde_json::from_slice(&res.body())?;
 
     let events: Events = serde_json::from_slice(&res.body())?;
 
-    Ok(())
+    Ok(events)
 }
 
 pub fn get_time_24h() -> (String, String) {
@@ -85,17 +87,18 @@ pub fn get_time_24h() -> (String, String) {
     (time_min, time_max)
 }
 
-pub fn list_calendars(token: &str) -> anyhow::Result<()> {
-    let url =
-        Url::from_str("https://www.googleapis.com/calendar/v3/users/me/calendarList").unwrap();
+// NOTE: using "primary" calendar instead for now
+// pub fn list_calendars(token: &str) -> anyhow::Result<()> {
+//     let url =
+//         Url::from_str("https://www.googleapis.com/calendar/v3/users/me/calendarList").unwrap();
 
-    let headers = HashMap::from([
-        ("Authorization".to_string(), format!("Bearer {}", token)),
-        ("Content-Type".to_string(), "application/json".to_string()),
-    ]);
-    let body = Vec::new(); // No body for GET request
+//     let headers = HashMap::from([
+//         ("Authorization".to_string(), format!("Bearer {}", token)),
+//         ("Content-Type".to_string(), "application/json".to_string()),
+//     ]);
+//     let body = Vec::new(); // No body for GET request
 
-    let res = http::send_request_await_response(http::Method::GET, url, Some(headers), 5, body)?;
-    let json: serde_json::Value = serde_json::from_slice(&res.body())?;
-    Ok(())
-}
+//     let res = http::send_request_await_response(http::Method::GET, url, Some(headers), 5, body)?;
+//     let json: serde_json::Value = serde_json::from_slice(&res.body())?;
+//     Ok(())
+// }

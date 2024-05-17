@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use chrono::Utc;
-use frankenstein::GetFileParams;
-use frankenstein::{ChatId, Message as TgMessage, SendMessageParams, UpdateContent};
+use chrono::{Duration, Utc};
 use kinode_process_lib::ProcessId;
 use kinode_process_lib::{
     await_message, call_init, get_blob, http, http::send_response, println, Address, Message,
@@ -12,29 +10,29 @@ use kinode_process_lib::{
 
 use llm_interface::openai::*;
 use serde::{Deserialize, Serialize};
-use stt_interface::STTRequest;
-use stt_interface::STTResponse;
-use telegram_interface::*;
 
 mod gcal;
+mod tg;
 use gcal::helpers::*;
+use tg::*;
+
+pub const LLM_ADDRESS: (&str, &str, &str, &str) =
+    ("our", "openai", "command_center", "appattacc.os");
 
 // todo command_center extensibility!
 // i want to from the UI, create a tg worker with a specific name?
-pub const TG_ADDRESS: (&str, &str, &str, &str) = ("our", "tg", "command_center", "appattacc.os");
-pub const LLM_ADDRESS: (&str, &str, &str, &str) =
-    ("our", "openai", "command_center", "appattacc.os");
-pub const STT_ADDRESS: (&str, &str, &str, &str) =
-    ("our", "speech_to_text", "command_center", "appattacc.os");
 
 wit_bindgen::generate!({
     path: "wit",
     world: "process",
 });
 
+const prompt1: &str = "You are a smart calendar assistant. Your job is to help users manage their schedules by understanding their requests and providing precise calendar actions. You can schedule meetings, list events, and help plan the day efficiently. When a user sends a message, your goal is to interpret their needs and suggest the most relevant calendar actions.";
+const prompt2: &str = "Based on the user's request, please clarify the intention using the following formats. If the user wants to schedule one or more events, respond with 'Schedule: [Title], [Description], [Start Time in UTC], [Duration in hours]; ...' for each event. If the user wants to list events for today, respond with 'List: Today'. Ensure your responses are concise and strictly follow these formats for easy parsing by the system.";
+const prompt3: &str = "You are an efficient meeting summarizer. Your task is to list the names and times of the next meetings from the user's calendar. Please provide the meeting titles and their start times in UTC, formatted as 'Next Meetings: [Title] at [Start Time in UTC]; ...'. Ensure the response is clear and concise for easy parsing.";
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct State {
-    google_token: Option<String>,
+pub struct State {
+    pub google_token: Option<String>,
     // expiry logic here or server? or fetch upon error?
     // context? // iframe
 }
@@ -46,7 +44,6 @@ enum CalendarRequest {
     Token { token: String },
     // temporary test commands
     GetToday,
-    ListCalendars,
     Schedule,
 }
 
@@ -58,6 +55,12 @@ enum OauthResponse {
     Error { error: String },
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+enum PrimitiveIntent {
+    Get,
+    Schedule,
+}
+
 // for UI?
 #[derive(Debug, Serialize, Deserialize)]
 enum CalendarResponse {
@@ -65,11 +68,110 @@ enum CalendarResponse {
     Error { error: String },
 }
 
-// plan:
-// then spawn tg/groqAI.whisper?
-// then mirror tg interface?
-// then talk, implement context + basic gets for calendars.
-// maybe choose calendar to use in the beginning or something?
+pub fn handle_telegram_message(message: &Message, state: &mut State) -> anyhow::Result<()> {
+    let Some(msg) = get_last_tg_msg(&message) else {
+        return Ok(());
+    };
+    let id = msg.chat.id;
+    let mut text = msg.text.clone().unwrap_or_default();
+
+    if let Some(voice) = msg.voice.clone() {
+        let audio = get_file(&voice.file_id)?;
+        text += &get_text(audio)?;
+    }
+
+    let initial_answer = get_groq_answer(&format!("{} {}", prompt1, text))?;
+    println!("initial answer: {:?}", initial_answer);
+    let second_answer = get_groq_answer(&format!("{} {}", prompt2, text))?;
+    println!("second answer: {:?}", second_answer);
+    match parse_intent(&second_answer) {
+        Ok(intent) => match intent {
+            PrimitiveIntent::Get => {
+                if let Some(token) = &state.google_token {
+                    let (time_min, time_max) = get_time_24h();
+                    let events = fetch_events_from_primary_calendar(token, &time_min, &time_max)?;
+                    let json_string = serde_json::to_string(&events)?;
+
+                    let answer = get_groq_answer(&format!("{} {}", prompt3, json_string))?;
+                    let _message = send_bot_message(&answer, id);
+                    return Ok(());
+                }
+            }
+            PrimitiveIntent::Schedule => {
+                if let Some(token) = &state.google_token {
+                    let start_time = Utc::now() + Duration::hours(2);
+                    let event = create_event("Coffee with Natasha", "", start_time, 1)?;
+                    add_event_to_calendar(token, &event)?;
+                    let _message = send_bot_message("Event scheduled successfully", id);
+                    return Ok(());
+                }
+            }
+        },
+        Err(e) => {}
+    }
+
+    // let answer = get_groq_answer(&text)?;
+    let _message = send_bot_message(&initial_answer, id);
+    Ok(())
+}
+
+fn parse_intent(response: &str) -> anyhow::Result<PrimitiveIntent> {
+    // Logic to parse the initial LLM response to determine the intent
+    // temp mocked
+    if response.contains("schedule") {
+        Ok(PrimitiveIntent::Schedule)
+    } else if response.contains("list") {
+        Ok(PrimitiveIntent::Get)
+    } else {
+        Err(anyhow::anyhow!("Unrecognized intent"))
+    }
+}
+
+fn get_groq_answer(text: &str) -> anyhow::Result<String> {
+    let request = ChatRequestBuilder::default()
+        .model("llama3-70b-8192".to_string())
+        .messages(vec![MessageBuilder::default()
+            .role("user".to_string())
+            .content(text.to_string())
+            .build()?])
+        .build()?;
+    let request = serde_json::to_vec(&LLMRequest::GroqChat(request))?;
+    let response = Request::to(LLM_ADDRESS)
+        .body(request)
+        .send_and_await_response(30)??;
+    let LLMResponse::Chat(chat) = serde_json::from_slice(response.body())? else {
+        return Err(anyhow::anyhow!("Failed to parse LLM response"));
+    };
+    Ok(chat.choices[0].message.content.clone())
+}
+
+// async fn handle_llm_response(response: String, state: &mut State) -> anyhow::Result<()> {
+//     if response.starts_with("Schedule:") {
+//         let events_details = response.trim_start_matches("Schedule: ").split(';');
+//         for details in events_details {
+//             let event_parts = details.split(',').collect::<Vec<_>>();
+//             if event_parts.len() == 4 {
+//                 let title = event_parts[0].trim();
+//                 let description = event_parts[1].trim();
+//                 let start_time =
+//                     Utc.datetime_from_str(event_parts[2].trim(), "%Y-%m-%dT%H:%M:%SZ")?;
+//                 let duration = event_parts[3].trim().parse::<i64>()?;
+//                 let event =
+//                     gcal::helpers::schedule_event(title, description, start_time, duration)?;
+//                 gcal::helpers::add_event_to_calendar(&state.google_token.unwrap(), &event)?;
+//             }
+//         }
+//     } else if response == "List: Today" {
+//         let (time_min, time_max) = gcal::helpers::get_time_24h();
+//         let events = gcal::helpers::fetch_events_from_primary_calendar(
+//             &state.google_token.unwrap(),
+//             &time_min,
+//             &time_max,
+//         )?;
+//         // Send events back to user or handle them as needed
+//     }
+//     Ok(())
+// }
 
 fn handle_http_message(state: &mut State, req: &http::HttpServerRequest) -> anyhow::Result<()> {
     if let http::HttpServerRequest::Http(incoming) = req {
@@ -133,6 +235,14 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
         handle_http_message(state, &req)?;
         return Ok(());
     }
+    let mut tg_address = Address::from(TG_ADDRESS);
+    // temp fix, make better
+    tg_address.node = our.node.clone();
+
+    if msg.source() == &tg_address {
+        handle_telegram_message(&msg, state)?;
+        return Ok(());
+    }
 
     match serde_json::from_slice::<CalendarRequest>(msg.body())? {
         CalendarRequest::GenerateUrl { target } => {
@@ -160,6 +270,8 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
         CalendarRequest::Token { token } => {
             // verify if it's from the right place too.
             state.google_token = Some(token);
+            // subscribe to telegram currently here..., move to button/action.
+            let _ = subscribe();
         }
         CalendarRequest::GetToday => {
             if let Some(token) = &state.google_token {
@@ -167,122 +279,14 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
                 fetch_events_from_primary_calendar(token, &time_min, &time_max)?;
             }
         }
-        CalendarRequest::ListCalendars => {
-            if let Some(token) = &state.google_token {
-                list_calendars(token)?;
-            }
-        }
         CalendarRequest::Schedule => {
             if let Some(token) = &state.google_token {
-                let event = schedule_event("Test Event", "This is a test event", Utc::now(), 1)?;
+                let event = create_event("Test Event", "This is a test event", Utc::now(), 1)?;
                 add_event_to_calendar(token, &event)?;
             }
         }
     };
 
-    Ok(())
-}
-
-fn handle_message2(our: &Address) -> anyhow::Result<()> {
-    let message = await_message()?;
-    if message.source().node != our.node {
-        return Ok(());
-    }
-    handle_telegram_message(&message)
-}
-
-pub fn handle_telegram_message(message: &Message) -> anyhow::Result<()> {
-    let Some(msg) = get_last_tg_msg(&message) else {
-        return Ok(());
-    };
-    let id = msg.chat.id;
-    let mut text = msg.text.clone().unwrap_or_default();
-    if let Some(voice) = msg.voice.clone() {
-        let audio = get_file(&voice.file_id)?;
-        text += &get_text(audio)?;
-    }
-    let answer = get_groq_answer(&text)?;
-    let _message = send_bot_message(&answer, id);
-    Ok(())
-}
-
-fn send_bot_message(text: &str, id: i64) -> anyhow::Result<TgMessage> {
-    let params = SendMessageParams::builder()
-        .chat_id(ChatId::Integer(id))
-        .text(text)
-        .build();
-    let send_message_request = serde_json::to_vec(&TgRequest::SendMessage(params))?;
-    let response = Request::to(TG_ADDRESS)
-        .body(send_message_request)
-        .send_and_await_response(30)??;
-    let TgResponse::SendMessage(message) = serde_json::from_slice(response.body())? else {
-        return Err(anyhow::anyhow!("Failed to send message"));
-    };
-    Ok(message)
-}
-
-fn get_groq_answer(text: &str) -> anyhow::Result<String> {
-    let request = ChatRequestBuilder::default()
-        .model("llama3-8b-8192".to_string())
-        .messages(vec![MessageBuilder::default()
-            .role("user".to_string())
-            .content(text.to_string())
-            .build()?])
-        .build()?;
-    let request = serde_json::to_vec(&LLMRequest::GroqChat(request))?;
-    let response = Request::to(LLM_ADDRESS)
-        .body(request)
-        .send_and_await_response(30)??;
-    let LLMResponse::Chat(chat) = serde_json::from_slice(response.body())? else {
-        return Err(anyhow::anyhow!("Failed to parse LLM response"));
-    };
-    Ok(chat.choices[0].message.content.clone())
-}
-
-fn get_text(audio: Vec<u8>) -> anyhow::Result<String> {
-    let stt_request = serde_json::to_vec(&STTRequest::OpenaiTranscribe(audio))?;
-    let response = Request::to(STT_ADDRESS)
-        .body(stt_request)
-        .send_and_await_response(3)??;
-    let STTResponse::OpenaiTranscribed(text) = serde_json::from_slice(response.body())? else {
-        return Err(anyhow::anyhow!("Failed to parse STT response"));
-    };
-    Ok(text)
-}
-
-fn get_file(file_id: &str) -> anyhow::Result<Vec<u8>> {
-    let get_file_params = GetFileParams::builder().file_id(file_id).build();
-    let tg_request = serde_json::to_vec(&TgRequest::GetFile(get_file_params))?;
-    let _ = Request::to(TG_ADDRESS)
-        .body(tg_request)
-        .send_and_await_response(10)??;
-    if let Some(blob) = get_blob() {
-        return Ok(blob.bytes);
-    }
-    Err(anyhow::anyhow!("Failed to get file"))
-}
-fn get_last_tg_msg(message: &Message) -> Option<TgMessage> {
-    let Ok(TgResponse::Update(tg_update)) = serde_json::from_slice(message.body()) else {
-        return None;
-    };
-    let update = tg_update.updates.last()?;
-    let msg = match &update.content {
-        UpdateContent::Message(msg) | UpdateContent::ChannelPost(msg) => msg,
-        _ => {
-            return None;
-        }
-    };
-    Some(msg.clone())
-}
-
-pub fn subscribe() -> anyhow::Result<()> {
-    let subscribe_request = serde_json::to_vec(&TgRequest::Subscribe)?;
-    let result = Request::to(TG_ADDRESS)
-        .body(subscribe_request)
-        .send_and_await_response(3)??;
-    let TgResponse::Ok = serde_json::from_slice::<TgResponse>(result.body())? else {
-        return Err(anyhow::anyhow!("Failed to parse subscription response"));
-    };
     Ok(())
 }
 
