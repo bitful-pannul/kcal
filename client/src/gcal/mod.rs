@@ -1,13 +1,12 @@
+pub mod calendar;
 /// Calendar List, the normal way to get at the list of calendars available.
 pub mod calendar_list;
-pub use calendar_list::*;
-pub mod calendar;
-pub use calendar::*;
 pub mod conference_properties;
 pub use conference_properties::*;
 /// Events, the method you will work with most events in a single calendar.
 pub mod events;
 pub use events::*;
+pub mod helpers;
 pub mod sendable;
 
 use serde_derive::{Deserialize, Serialize};
