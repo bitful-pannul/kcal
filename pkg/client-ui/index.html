@@ -18,13 +18,34 @@
             color: #d63031;
         }
 
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            /* Allows items to wrap onto the next line on small screens */
+            justify-content: space-between;
+            /* Spreads out the children to occupy the full width */
+            padding: 20px;
+        }
+
+        .api-keys,
+        .google-status {
+            flex: 1 1 300px;
+            /* Each section takes up equal space but not less than 300px */
+            margin: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            /* Optional: adds shadow for better separation */
+        }
+
+        /* Styling for inputs and buttons */
         input,
         button {
             padding: 10px;
             margin: 5px 0;
             border-radius: 5px;
             border: 1px solid #ccc;
-            width: 300px;
+            width: 100%;
+            /* Makes input and button width responsive */
         }
 
         button {
@@ -38,41 +59,178 @@
         button:hover {
             background-color: #74b9ff;
         }
+
+        .statusLight {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-left: 10px;
+            background-color: #d63031;
+            /* Default to red */
+        }
+
+        .green {
+            background-color: #2ecc71;
+        }
+
+        .red {
+            background-color: #d63031;
+        }
+
+        .prompts {
+            width: 100%;
+            /* Ensures the Prompts section spans the full width of the container */
+            margin-top: 20px;
+            /* Adds space between the top sections and the Prompts section */
+            padding: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .arrow {
+            cursor: pointer;
+        }
+
+        .prompts-content {
+            padding: 10px;
+            margin-top: 5px;
+            background-color: #f9f9f9;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
     </style>
 </head>
 
 <body>
     <h1>KinoGcal</h1>
-    <div id="status">Status: Disconnected</div>
-    <input type="text" id="targetName" value="fake.dev">
-    <button onclick="connect()">Connect</button>
+    <div class="container">
+        <div class="api-keys">
+            <h2>API Key Setup</h2>
+            <div>
+                <label for="telegramKey">Telegram Bot Key:</label>
+                <input type="text" id="telegramKey" placeholder="Enter Telegram Bot Key">
+                <span id="telegramStatus" class="statusLight"></span>
+            </div>
+            <div>
+                <label for="openaiKey">OpenAI API Key:</label>
+                <input type="text" id="openaiKey" placeholder="Enter OpenAI API Key">
+                <span id="openaiStatus" class="statusLight"></span>
+            </div>
+            <div>
+                <label for="groqKey">Groq API Key:</label>
+                <input type="text" id="groqKey" placeholder="Enter Groq API Key">
+                <span id="groqStatus" class="statusLight"></span>
+            </div>
+            <button onclick="submitConfig()">Set API Keys</button>
+            <p id="result"></p>
+        </div>
+        <div class="google-status">
+            <h2>Google Auth</h2>
+            <div id="status">Google API Status: Disconnected</div>
+            <input type="text" id="targetName" value="fake.dev">
+            <button onclick="connect()">Connect Gcal</button>
+        </div>
+    </div>
+    <div class="prompts">
+        <h2 onclick="togglePrompts()">Prompts <span class="arrow">&#9660;</span></h2>
+        <div class="prompts-content" style="display: none;">
+            <!-- Placeholder for prompts content -->
+            <p>Edit and save prompts here. (Functionality to be implemented)</p>
+            <button>Save</button>
+        </div>
+    </div>
 
     <script>
         const statusDiv = document.getElementById('status');
         const targetInput = document.getElementById('targetName');
 
-        function updateStatus(connected) {
+        function updateGoogleStatus(connected) {
             statusDiv.textContent = `Status: ${connected ? 'Connected' : 'Disconnected'}`;
             statusDiv.style.color = connected ? '#2ecc71' : '#d63031'; // Green if connected, red if not
+        }
+
+        function updateKeyStatus(key, value) {
+            const inputField = document.getElementById(`${key}Key`);
+            const statusElement = document.getElementById(`${key}Status`);
+            if (value) {
+                statusElement.classList.add('green');
+                statusElement.classList.remove('red');
+                inputField.placeholder = "API Key is set (click to change)";
+                inputField.title = "API key is set. You can update it if needed.";
+            } else {
+                statusElement.classList.remove('green');
+                statusElement.classList.add('red');
+                inputField.placeholder = `Enter ${key.charAt(0).toUpperCase() + key.slice(1)} API Key`;
+                inputField.title = "";
+            }
         }
 
         function pollStatus() {
             fetch(`/client:ratatouille:template.os/status`)
                 .then(response => response.json())
                 .then(data => {
-                    // Check if the google_token is present and not empty
-                    if (data.State && data.State.state && data.State.state.google_token) {
-                        updateStatus(true);
-                    } else {
-                        updateStatus(false);
+                    // Update Google API connection status
+                    const googleConnected = data.State && data.State.state && data.State.state.google_token;
+                    updateGoogleStatus(googleConnected);
+
+                    // Update API key statuses
+                    updateKeyStatus('telegram', data.State.state.telegram_token);
+                    updateKeyStatus('openai', data.State.state.openai_token);
+                    updateKeyStatus('groq', data.State.state.groq_token);
+
+                    if (!googleConnected) {
                         setTimeout(pollStatus, 5000); // Poll every 5 seconds if not connected
                     }
                 })
                 .catch(error => {
                     console.error('Error polling status:', error);
-                    updateStatus(false);
+                    updateGoogleStatus(false);
                     setTimeout(pollStatus, 5000);
                 });
+        }
+
+        async function submitConfig() {
+            const telegramKey = document.getElementById('telegramKey').value || null;
+            const openaiKey = document.getElementById('openaiKey').value || null;
+            const groqKey = document.getElementById('groqKey').value || null;
+            const bodyData = {
+                telegram: telegramKey,
+                openai: openaiKey,
+                groq: groqKey
+            };
+            try {
+                const response = await fetch('/client:ratatouille:template.os/submit_config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(bodyData),
+                });
+                const data = await response.json();
+                if (data && data.State && data.State.state) {
+                    document.getElementById('result').textContent = 'Configuration updated successfully!';
+                    updateKeyStatus('telegram', data.State.state.telegram_token);
+                    updateKeyStatus('openai', data.State.state.openai_token);
+                    updateKeyStatus('groq', data.State.state.groq_token);
+                } else {
+                    throw new Error('Invalid response format');
+                }
+            } catch (error) {
+                console.error('Error submitting configuration:', error);
+                document.getElementById('result').textContent = 'Failed to update configuration.';
+            }
+        }
+
+        function togglePrompts() {
+            const content = document.querySelector('.prompts-content');
+            const arrow = document.querySelector('.prompts .arrow');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                arrow.innerHTML = '&#9650;'; // Arrow pointing up
+            } else {
+                content.style.display = 'none';
+                arrow.innerHTML = '&#9660;'; // Arrow pointing down
+            }
         }
 
         function connect() {

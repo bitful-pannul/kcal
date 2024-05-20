@@ -8,19 +8,21 @@ use kinode_process_lib::{
     Request,
 };
 
-use llm_interface::openai::*;
 use serde::{Deserialize, Serialize};
 
 mod gcal;
+mod groq;
+mod stt;
 mod tg;
+
 use gcal::helpers::*;
 use tg::*;
 
-pub const LLM_ADDRESS: (&str, &str, &str, &str) =
-    ("our", "openai", "command_center", "appattacc.os");
-
+pub const LLM_ADDRESS: (&str, &str, &str, &str) = ("our", "openai", "ratatouille", "template.os");
+pub const TG_ADDRESS: (&str, &str, &str, &str) = ("our", "tg", "ratatouille", "template.os");
+pub const STT_ADDRESS: (&str, &str, &str, &str) =
+    ("our", "speech_to_text", "ratatouille", "template.os");
 // todo command_center extensibility!
-// i want to from the UI, create a tg worker with a specific name?
 
 wit_bindgen::generate!({
     path: "wit",
@@ -30,11 +32,14 @@ wit_bindgen::generate!({
 const prompt1: &str = "You are a smart calendar assistant. Your job is to help users manage their schedules by understanding their requests and providing precise calendar actions. You can schedule meetings, list events, and help plan the day efficiently. When a user sends a message, your goal is to interpret their needs and suggest the most relevant calendar actions.";
 const prompt2: &str = "Based on the user's request, please clarify the intention using the following formats. If the user wants to schedule one or more events, respond with 'Schedule: [Title], [Description], [Start Time in UTC], [Duration in hours]; ...' for each event. If the user wants to list events for today, respond with 'List: Today'. Ensure your responses are concise and strictly follow these formats for easy parsing by the system.";
 const prompt3: &str = "You are an efficient meeting summarizer. Your task is to list the names and times of the next meetings from the user's calendar. Please provide the meeting titles and their start times in UTC, formatted as 'Next Meetings: [Title] at [Start Time in UTC]; ...'. Ensure the response is clear and concise for easy parsing.";
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct State {
     pub google_token: Option<String>,
+    pub telegram_token: Option<String>,
+    pub openai_token: Option<String>,
+    pub groq_token: Option<String>,
     // expiry logic here or server? or fetch upon error?
-    // context? // iframe
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,9 +47,17 @@ enum CalendarRequest {
     // forwarded/accepted to/from oauth kinode
     GenerateUrl { target: String },
     Token { token: String },
+    AddApis(Tokens),
     // temporary test commands
     GetToday,
     Schedule,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Tokens {
+    telegram: Option<String>,
+    openai: Option<String>,
+    groq: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -80,9 +93,9 @@ pub fn handle_telegram_message(message: &Message, state: &mut State) -> anyhow::
         text += &get_text(audio)?;
     }
 
-    let initial_answer = get_groq_answer(&format!("{} {}", prompt1, text))?;
+    let initial_answer = groq::get_groq_answer(&format!("{} {}", prompt1, text))?;
     println!("initial answer: {:?}", initial_answer);
-    let second_answer = get_groq_answer(&format!("{} {}", prompt2, text))?;
+    let second_answer = groq::get_groq_answer(&format!("{} {}", prompt2, text))?;
     println!("second answer: {:?}", second_answer);
     match parse_intent(&second_answer) {
         Ok(intent) => match intent {
@@ -92,7 +105,7 @@ pub fn handle_telegram_message(message: &Message, state: &mut State) -> anyhow::
                     let events = fetch_events_from_primary_calendar(token, &time_min, &time_max)?;
                     let json_string = serde_json::to_string(&events)?;
 
-                    let answer = get_groq_answer(&format!("{} {}", prompt3, json_string))?;
+                    let answer = groq::get_groq_answer(&format!("{} {}", prompt3, json_string))?;
                     let _message = send_bot_message(&answer, id);
                     return Ok(());
                 }
@@ -125,24 +138,6 @@ fn parse_intent(response: &str) -> anyhow::Result<PrimitiveIntent> {
     } else {
         Err(anyhow::anyhow!("Unrecognized intent"))
     }
-}
-
-fn get_groq_answer(text: &str) -> anyhow::Result<String> {
-    let request = ChatRequestBuilder::default()
-        .model("llama3-70b-8192".to_string())
-        .messages(vec![MessageBuilder::default()
-            .role("user".to_string())
-            .content(text.to_string())
-            .build()?])
-        .build()?;
-    let request = serde_json::to_vec(&LLMRequest::GroqChat(request))?;
-    let response = Request::to(LLM_ADDRESS)
-        .body(request)
-        .send_and_await_response(30)??;
-    let LLMResponse::Chat(chat) = serde_json::from_slice(response.body())? else {
-        return Err(anyhow::anyhow!("Failed to parse LLM response"));
-    };
-    Ok(chat.choices[0].message.content.clone())
 }
 
 // async fn handle_llm_response(response: String, state: &mut State) -> anyhow::Result<()> {
@@ -217,6 +212,49 @@ fn handle_http_message(state: &mut State, req: &http::HttpServerRequest) -> anyh
                     serde_json::to_vec(&OauthResponse::Url { url })?,
                 );
             }
+        } else if incoming.path()? == "/submit_config" {
+            let Some(blob) = get_blob() else {
+                return Err(anyhow::anyhow!("Failed to get blob"));
+            };
+            let json = serde_json::from_slice::<serde_json::Value>(&blob.bytes)?;
+
+            let mut tokens = Tokens {
+                telegram: json
+                    .get("telegram")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                openai: json
+                    .get("openai")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                groq: json
+                    .get("groq")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+            };
+            if let Some(telegram_token) = tokens.telegram.take() {
+                state.telegram_token = Some(telegram_token.clone());
+                init_tg(&telegram_token)?;
+                let _ = subscribe();
+            }
+            if let Some(openai_token) = tokens.openai.take() {
+                state.openai_token = Some(openai_token.clone());
+                stt::init_stt(&openai_token)?;
+            }
+            if let Some(groq_token) = tokens.groq.take() {
+                state.groq_token = Some(groq_token.clone());
+                groq::init_groq(&groq_token)?;
+            }
+
+            let headers =
+                HashMap::from([("Content-Type".to_string(), "application/json".to_string())]);
+            send_response(
+                http::StatusCode::OK,
+                Some(headers),
+                serde_json::to_vec(&CalendarResponse::State {
+                    state: state.clone(),
+                })?,
+            );
         }
     }
 
@@ -267,11 +305,24 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
                 _ => {}
             }
         }
+        CalendarRequest::AddApis(mut tokens) => {
+            if let Some(telegram_token) = tokens.telegram.take() {
+                state.telegram_token = Some(telegram_token.clone());
+                init_tg(&telegram_token)?;
+                let _ = subscribe();
+            }
+            if let Some(openai_token) = tokens.openai.take() {
+                state.openai_token = Some(openai_token.clone());
+                stt::init_stt(&openai_token)?;
+            }
+            if let Some(groq_token) = tokens.groq.take() {
+                state.groq_token = Some(groq_token.clone());
+                groq::init_groq(&groq_token)?;
+            }
+        }
         CalendarRequest::Token { token } => {
-            // verify if it's from the right place too.
+            // todo: verify if it's from the right place too.
             state.google_token = Some(token);
-            // subscribe to telegram currently here..., move to button/action.
-            let _ = subscribe();
         }
         CalendarRequest::GetToday => {
             if let Some(token) = &state.google_token {
@@ -297,8 +348,13 @@ fn init(our: Address) {
     http::serve_index_html(&our, "client-ui/", true, false, vec!["/"]).unwrap();
     http::bind_http_path("/status", true, false).unwrap();
     http::bind_http_path("/generate", true, false).unwrap();
-
-    let mut state = State { google_token: None };
+    http::bind_http_path("/submit_config", true, false).unwrap();
+    let mut state = State {
+        google_token: None,
+        telegram_token: None,
+        openai_token: None,
+        groq_token: None,
+    };
 
     loop {
         match handle_message(&our, &mut state) {

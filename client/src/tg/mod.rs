@@ -1,3 +1,4 @@
+use crate::{STT_ADDRESS, TG_ADDRESS};
 use frankenstein::GetFileParams;
 use frankenstein::{ChatId, Message as TgMessage, SendMessageParams, UpdateContent};
 use kinode_process_lib::{get_blob, Message, Request};
@@ -5,9 +6,22 @@ use stt_interface::STTRequest;
 use stt_interface::STTResponse;
 use telegram_interface::*;
 
-pub const TG_ADDRESS: (&str, &str, &str, &str) = ("our", "tg", "command_center", "appattacc.os");
-pub const STT_ADDRESS: (&str, &str, &str, &str) =
-    ("our", "speech_to_text", "command_center", "appattacc.os");
+pub fn init_tg(key: &str) -> anyhow::Result<()> {
+    let init_req = TgInitialize {
+        token: key.to_string(),
+        params: None,
+    };
+
+    let req = serde_json::to_vec(&TgRequest::RegisterApiKey(init_req))?;
+
+    let response = Request::to(TG_ADDRESS)
+        .body(req)
+        .send_and_await_response(3)??;
+    let TgResponse::Ok = serde_json::from_slice(response.body())? else {
+        return Err(anyhow::anyhow!("Failed to parse init response"));
+    };
+    Ok(())
+}
 
 pub fn send_bot_message(text: &str, id: i64) -> anyhow::Result<TgMessage> {
     let params = SendMessageParams::builder()
