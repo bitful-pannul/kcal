@@ -51,6 +51,7 @@ enum CalendarRequest {
     // temporary test commands
     GetToday,
     Schedule,
+    RefreshToken,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -304,6 +305,20 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
                 }
                 _ => {}
             }
+        }
+        CalendarRequest::RefreshToken => {
+            let target: Address = Address::new::<String, ProcessId>(
+                "fake.dev".to_string(),
+                ProcessId::from_str("oauth:ratatouille:template.os")?,
+            );
+
+            let resp = Request::new()
+                .target(target)
+                .body(serde_json::to_vec(&CalendarRequest::RefreshToken)?)
+                .send_and_await_response(5)??;
+
+            let res = serde_json::from_slice::<OauthResponse>(resp.body())?;
+            println!("got response: {:?}", res);
         }
         CalendarRequest::AddApis(mut tokens) => {
             if let Some(telegram_token) = tokens.telegram.take() {

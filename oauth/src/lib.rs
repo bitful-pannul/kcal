@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use kinode::process::standard::get_state;
 use kinode_process_lib::http::send_response;
 use kinode_process_lib::{
-    await_message, call_init, get_blob, http, println, Address, Request, Response,
+    await_message, call_init, get_blob, http, println, timer, Address, Request, Response,
 };
 use oauth2::basic::BasicClient;
 use oauth2::{
@@ -52,8 +52,9 @@ enum OauthRequest {
 #[derive(Debug, Serialize, Deserialize)]
 enum OauthResponse {
     Url { url: String },
-    RefreshToken { token: String },
     Error { error: String },
+    // sent as a request for now
+    RefreshToken { token: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -63,6 +64,11 @@ struct Initialize {
     auth_url: String,
     token_url: String,
     redirect_url: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Expires {
+    client: Address,
 }
 
 fn generate_url(
@@ -156,9 +162,16 @@ fn refresh_access_token(
         },
     );
 
-    let _ = Response::new()
+    let expires_ms = (new_expires_in - 30) * 1000;
+    let context = serde_json::to_vec(&Expires {
+        client: source.clone(),
+    })?;
+    timer::set_timer(expires_ms, Some(context));
+
+    let _ = Request::new()
+        .target(source)
         .body(
-            serde_json::to_vec(&OauthResponse::RefreshToken {
+            serde_json::to_vec(&OauthRequest::Token {
                 token: new_access_token,
             })
             .unwrap(),
@@ -240,6 +253,15 @@ fn exchange_code(
         },
     );
 
+    // automatic refreshing, in 30s before expiry, we request a new access_token,
+    // and send it back to the client?
+    let expires_ms = (expires_in - 30) * 1000;
+    let context = serde_json::to_vec(&Expires {
+        client: source.clone(),
+    })?;
+
+    timer::set_timer(expires_ms, Some(context));
+
     let _ = Request::new()
         .target(source)
         .body(
@@ -261,6 +283,14 @@ fn handle_message(
     let message = await_message()?;
 
     if !message.is_request() {
+        // slightly special case, put elsewhere?
+        if message.source().process == "timer:distro:sys" {
+            if let Some(ctx) = message.context() {
+                let expires: Expires = serde_json::from_slice(ctx)?;
+                handle_timer(&expires, state)?;
+            }
+            return Ok(());
+        }
         return Err(anyhow::anyhow!("unexpected Response: {:?}", message));
     }
 
@@ -322,6 +352,14 @@ fn handle_message(
         _ => {}
     }
 
+    Ok(())
+}
+
+fn handle_timer(expires: &Expires, state: &mut State) -> anyhow::Result<()> {
+    if let Some(token_metadata) = state.tokens.get(&expires.client) {
+        let refresh_token = token_metadata.refresh_token.clone();
+        refresh_access_token(&expires.client, &refresh_token, state)?;
+    }
     Ok(())
 }
 
