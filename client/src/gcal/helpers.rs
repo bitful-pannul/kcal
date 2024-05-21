@@ -73,7 +73,7 @@ pub fn get_events_from_primary_calendar(
     Ok(events)
 }
 
-pub fn get_time_24h() -> (String, String) {
+pub fn _get_time_24h() -> (String, String) {
     let now: DateTime<Utc> = Utc::now();
     let time_min = now.format("%Y-%m-%dT%H:%M:%SZ").to_string(); // UTC time, no milliseconds
     let time_max = (now + Duration::hours(24))

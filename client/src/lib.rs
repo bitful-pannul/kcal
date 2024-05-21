@@ -19,10 +19,9 @@ use tg::*;
 use crate::gcal::SimpleEvent;
 use crate::prompts::{get_default_prompt, EVENTS_PROMPT};
 
-pub const LLM_ADDRESS: (&str, &str, &str, &str) = ("our", "openai", "ratatouille", "template.os");
-pub const TG_ADDRESS: (&str, &str, &str, &str) = ("our", "tg", "ratatouille", "template.os");
-pub const STT_ADDRESS: (&str, &str, &str, &str) =
-    ("our", "speech_to_text", "ratatouille", "template.os");
+pub const LLM_ADDRESS: (&str, &str, &str, &str) = ("our", "openai", "kcal", "appattacc.os");
+pub const TG_ADDRESS: (&str, &str, &str, &str) = ("our", "tg", "kcal", "appattacc.os");
+pub const STT_ADDRESS: (&str, &str, &str, &str) = ("our", "speech_to_text", "kcal", "appattacc.os");
 
 wit_bindgen::generate!({
     path: "wit",
@@ -175,7 +174,7 @@ fn handle_http_message(state: &mut State, req: &http::HttpServerRequest) -> anyh
 
             let target = Address::new::<String, ProcessId>(
                 target_str.to_string(),
-                ProcessId::from_str("oauth:ratatouille:template.os")?,
+                ProcessId::from_str("oauth:kcal:appattacc.os")?,
             );
 
             let resp = Request::new()
@@ -268,7 +267,7 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
             // todo cleanup
             let target: Address = Address::new::<String, ProcessId>(
                 target,
-                ProcessId::from_str("oauth:ratatouille:template.os")?,
+                ProcessId::from_str("oauth:kcal:appattacc.os")?,
             );
 
             let url = Request::new()
@@ -307,7 +306,7 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
             // todo cleanup
             let target: Address = Address::new::<String, ProcessId>(
                 target,
-                ProcessId::from_str("oauth:ratatouille:template.os")?,
+                ProcessId::from_str("oauth:kcal:appattacc.os")?,
             );
             let _ = Request::new()
                 .target(target)

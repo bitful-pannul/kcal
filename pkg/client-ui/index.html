@@ -150,7 +150,7 @@
             <h2>Google Auth</h2>
             <div id="status">Google API Status: Disconnected</div>
             <div class="tooltip">
-                <input type="text" id="targetName" value="fake.dev"
+                <input type="text" id="targetName" value="appattacc.os"
                     title="This is your OAuth provider. You can use a different provider, but we recommend the default!">
                 <span class="tooltiptext">This is your OAuth provider. You can use a different provider, but we
                     recommend the default!</span>
@@ -198,7 +198,7 @@
         }
 
         function pollStatus() {
-            fetch(`/client:ratatouille:template.os/status`)
+            fetch(`/client:kcal:appattacc.os/status`)
                 .then(response => response.json())
                 .then(data => {
                     // Update Google API connection status
@@ -233,7 +233,7 @@
                 groq: groqKey
             };
             try {
-                const response = await fetch('/client:ratatouille:template.os/submit_config', {
+                const response = await fetch('/client:kcal:appattacc.os/submit_config', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -272,7 +272,7 @@
                 target: targetInput.value
             };
 
-            fetch(`/client:ratatouille:template.os/generate`, {
+            fetch(`/client:kcal:appattacc.os/generate`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'

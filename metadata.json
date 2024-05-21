@@ -1,16 +1,18 @@
 {
-    "name": "ratatouille",
-    "description": "",
-    "image": "",
+    "name": "kcal",
+    "description": "A google calendar assistant in telegram.",
+    "image": "https://i.imgur.com/zIYW3VB.jpeg",
     "properties": {
-        "package_name": "ratatouille",
+        "package_name": "kcal",
         "current_version": "0.1.0",
-        "publisher": "template.os",
-        "mirrors": [],
+        "publisher": "appattacc.os",
+        "mirrors": [
+            "appattacc.os"
+        ],
         "code_hashes": {
-            "0.1.0": ""
+            "0.1.0": "a69650e63b7224d737d8d2f049df86f72297e25b2395d8d2ab3aed228720bc64"
         }
     },
-    "external_url": "",
+    "external_url": "https://github.com/bitful-pannul/kcal",
     "animation_url": ""
 }
