@@ -28,12 +28,18 @@ pub struct Events {
     #[serde(default = "default_events_kind")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
-    pub etag: String,
-    pub summary: String,
-    pub description: String,
-    pub updated: String,
-    pub time_zone: String,
-    pub access_role: CalendarAccessRole,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_zone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_role: Option<CalendarAccessRole>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub default_reminders: Vec<DefaultReminder>,
     #[serde(skip_serializing_if = "Option::is_none")]

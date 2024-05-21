@@ -1,6 +1,6 @@
 use crate::gcal::*;
 use chrono::{DateTime, Duration, Utc};
-use kinode_process_lib::http;
+use kinode_process_lib::{http, println};
 use std::{collections::HashMap, str::FromStr};
 use url::Url;
 
@@ -106,7 +106,7 @@ pub fn get_timezone(token: &str) -> anyhow::Result<String> {
 
     let res = http::send_request_await_response(http::Method::GET, url, Some(headers), 5, vec![])?;
     let json: serde_json::Value = serde_json::from_slice(&res.body())?;
-    println!("timezone json: {:?}", json);
+
     let timezone = json
         .get("value")
         .ok_or(anyhow::anyhow!("No timezone found"))?

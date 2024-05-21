@@ -27,10 +27,12 @@ pub struct CalendarListItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     pub id: String,
-    pub etag: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub location: Option<String>,
-    pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary_override: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -100,7 +102,8 @@ pub struct CalendarList {
     #[serde(default = "default_list_kind")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
-    pub etag: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_sync_token: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]

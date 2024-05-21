@@ -20,9 +20,12 @@ pub struct Calendar {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     pub id: String,
-    pub etag: String,
-    pub summary: String,
-    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub location: String,
     pub time_zone: String,
     pub conference_properties: ConferenceProperties,
