@@ -19,7 +19,7 @@ telegram_interface = { git = "https://github.com/kinode-dao/telegram-bot/", bran
 frankenstein = { version = "0.30", default-features = false, features = ["telegram-trait"] } 
 serde_derive = "1.0.202"
 chrono = "^0.4"
-chrono-tz = "^0.8"
+chrono-tz = "0.9.0"
 
 
 

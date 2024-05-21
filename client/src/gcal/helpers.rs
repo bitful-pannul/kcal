@@ -1,6 +1,5 @@
 use crate::gcal::*;
 use chrono::{DateTime, Duration, Utc};
-use core::time;
 use kinode_process_lib::http;
 use std::{collections::HashMap, str::FromStr};
 use url::Url;
@@ -98,6 +97,21 @@ pub fn get_primary_calendar(token: &str) -> anyhow::Result<calendar::Calendar> {
 }
 
 pub fn get_timezone(token: &str) -> anyhow::Result<String> {
-    let primary_cal = get_primary_calendar(token)?;
-    Ok(primary_cal.time_zone)
+    let url = Url::from_str("https://www.googleapis.com/calendar/v3/users/me/settings/timezone")?;
+
+    let headers = HashMap::from([
+        ("Authorization".to_string(), format!("Bearer {}", token)),
+        ("Content-Type".to_string(), "application/json".to_string()),
+    ]);
+
+    let res = http::send_request_await_response(http::Method::GET, url, Some(headers), 5, vec![])?;
+    let json: serde_json::Value = serde_json::from_slice(&res.body())?;
+    println!("timezone json: {:?}", json);
+    let timezone = json
+        .get("value")
+        .ok_or(anyhow::anyhow!("No timezone found"))?
+        .as_str()
+        .ok_or(anyhow::anyhow!("Invalid timezone format"))?;
+
+    Ok(timezone.to_string())
 }

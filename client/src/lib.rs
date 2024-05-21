@@ -17,7 +17,7 @@ use gcal::helpers::*;
 use tg::*;
 
 use crate::gcal::SimpleEvent;
-use crate::prompts::{get_default_prompt, DEFAULT_PROMPT, EVENTS_PROMPT};
+use crate::prompts::{get_default_prompt, EVENTS_PROMPT};
 
 pub const LLM_ADDRESS: (&str, &str, &str, &str) = ("our", "openai", "ratatouille", "template.os");
 pub const TG_ADDRESS: (&str, &str, &str, &str) = ("our", "tg", "ratatouille", "template.os");
@@ -35,6 +35,7 @@ pub struct State {
     pub telegram_token: Option<String>,
     pub openai_token: Option<String>,
     pub groq_token: Option<String>,
+    pub timezone: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -93,7 +94,8 @@ pub fn handle_telegram_message(message: &Message, state: &mut State) -> anyhow::
         text += &get_text(audio)?;
     }
 
-    let llm_answer = groq::get_groq_answer(&format!("{} {}", get_default_prompt(), text))?;
+    let llm_answer =
+        groq::get_groq_answer(&format!("{} {}", get_default_prompt(&state.timezone), text))?;
     println!("initial answer: {:?}", llm_answer);
 
     let initial_answer = process_response(token, &llm_answer)?;
@@ -143,10 +145,13 @@ fn process_response(token: &str, response: &str) -> anyhow::Result<String> {
             let start = parts[1].trim();
             let end = parts[2].trim();
             let timezone = parts[3].trim();
-            let description = parts[4].trim();
-            let summary = parts.get(5).map(|s| s.trim()).unwrap_or("Event");
+            let title = parts.get(4).map(|s| s.trim()).unwrap_or("Untitled Event");
+            let description = parts
+                .get(5)
+                .map(|s| s.trim())
+                .unwrap_or("No description provided");
 
-            let event = create_event(summary, description, start, end, Some(timezone.into()))?;
+            let event = create_event(title, description, start, end, Some(timezone.into()))?;
             schedule_event(token, &event)?;
             return Ok(human_like_response.to_string());
         }
@@ -323,7 +328,9 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
         }
         CalendarRequest::Token { token } => {
             // todo: verify if it's from the right place too.
-            state.google_token = Some(token);
+            state.google_token = Some(token.clone());
+            let timezone = get_timezone(&token)?;
+            state.timezone = Some(timezone);
         }
         CalendarRequest::GetToday => {
             if let Some(token) = &state.google_token {
@@ -351,6 +358,7 @@ fn init(our: Address) {
         telegram_token: None,
         openai_token: None,
         groq_token: None,
+        timezone: None,
     };
 
     loop {

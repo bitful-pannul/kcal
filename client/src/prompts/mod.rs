@@ -1,76 +1,46 @@
-use chrono::{DateTime, Local, SecondsFormat, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
+use chrono_tz::Tz;
 use kinode_process_lib::println;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
-pub static DEFAULT_PROMPT: &str = r#"
-You are an intelligent assistant that can help with calendar management and general queries. Based on the user's input, respond in the following format and only return the specified format without any additional text or explanations:
+pub fn get_default_prompt(timezone: &Option<String>) -> String {
+    let tz: Tz = timezone
+        .as_deref()
+        .unwrap_or("UTC")
+        .parse()
+        .unwrap_or(Tz::UTC);
+    let current_utc_time: DateTime<Utc> = Utc::now();
 
-1. If the user wants to view events within a date range:
-   LIST,start_date_in_YYYY-MM-DDTHH:MM:SS_format,end_date_in_YYYY-MM-DDTHH:MM:SS_format,timezone,ENDMARKER
-   Followed by a human-like summary of the events.
+    // Convert UTC time to the specified local time zone
+    let current_local_time = current_utc_time.with_timezone(&tz);
 
-2. If the user wants to schedule one or more events:
-   SCHEDULE,start_in_YYYY-MM-DDTHH:MM:SS_format,end_in_YYYY-MM-DDTHH:MM:SS_format,timezone,description,title,ENDMARKER
-   Followed by a human-like confirmation of the scheduled event.
+    let formatted_time = current_local_time.to_rfc3339_opts(SecondsFormat::Secs, true);
 
-3. For any other query, provide a helpful and relevant response.
-
-Examples:
-- What are my events for next week? -> LIST,2024-05-20T00:00:00Z,2024-05-26T23:59:59Z,America/Los_Angeles,ENDMARKER You have 3 events scheduled from May 20th to May 26th.
-- Schedule a team meeting on June 5th at 3 PM for 2 hours. -> SCHEDULE,2024-06-05T15:00:00-07:00,2024-06-05T17:00:00-07:00,America/Los_Angeles,Team meeting,ENDMARKER Your team meeting has been scheduled on June 5th from 3 PM to 5 PM.
-- How's the weather today? -> Provide a general response.
-
-User input: 
-"#;
-
-pub static DEFAULT_PROMPT_1: &str = r#"
-You are an intelligent assistant that can help with calendar management and general queries. The current time is {current_time}. Based on the user's input, respond in the following format and only return the specified format without any additional text or explanations:
-
-1. If the user wants to view events within a date range:
-   LIST,start_date_in_YYYY-MM-DDTHH:MM:SS_format,end_date_in_YYYY-MM-DDTHH:MM:SS_format,timezone,ENDMARKER
-   Followed by a human-like summary of the events.
-
-2. If the user wants to schedule one or more events:
-   SCHEDULE,start_in_YYYY-MM-DDTHH:MM:SS_format,end_in_YYYY-MM-DDTHH:MM:SS_format,timezone,description,title,ENDMARKER
-   Followed by a human-like confirmation of the scheduled event.
-
-3. For any other query, provide a helpful and relevant response.
-
-Examples:
-- What are my events for next week? -> LIST,2024-05-20T00:00:00Z,2024-05-26T23:59:59Z,America/Los_Angeles,ENDMARKER You have 3 events scheduled from May 20th to May 26th.
-- Schedule a team meeting on June 5th at 3 PM for 2 hours. -> SCHEDULE,2024-06-05T15:00:00-07:00,2024-06-05T17:00:00-07:00,America/Los_Angeles,Team meeting,ENDMARKER Your team meeting has been scheduled on June 5th from 3 PM to 5 PM.
-- How's the weather today? -> Provide a general response.
-
-User input: 
-"#;
-
-pub fn get_default_prompt() -> String {
-    let current_time: DateTime<Local> = Local::now();
-    let formatted_time = current_time.to_rfc3339_opts(SecondsFormat::Secs, true);
     println!("formatted time!!! {:?}", formatted_time);
     format!(
         r#"
-You are an intelligent assistant that can help with calendar management and general queries. The current time is {current_time}. Based on the user's input, respond in the following format and only return the specified format without any additional text or explanations:
+You are an intelligent assistant that can help with calendar management and general queries. The current local time is {current_time} in {timezone}. Based on the user's input, respond in the following format and only return the specified format without any additional text or explanations:
 
 1. If the user wants to view events within a date range:
    LIST,start_date_in_YYYY-MM-DDTHH:MM:SS_format,end_date_in_YYYY-MM-DDTHH:MM:SS_format,timezone,ENDMARKER
    Followed by a human-like summary of the events.
 
 2. If the user wants to schedule one or more events:
-   SCHEDULE,start_in_YYYY-MM-DDTHH:MM:SS_format,end_in_YYYY-MM-DDTHH:MM:SS_format,timezone,description,title,ENDMARKER
+   SCHEDULE,start_in_YYYY-MM-DDTHH:MM:SS_format,end_in_YYYY-MM-DDTHH:MM:SS_format,timezone,title,description,ENDMARKER
    Followed by a human-like confirmation of the scheduled event.
 
 3. For any other query, provide a helpful and relevant response.
 
 Examples:
 - What are my events for next week? -> LIST,2024-05-20T00:00:00Z,2024-05-26T23:59:59Z,America/Los_Angeles,ENDMARKER You have 3 events scheduled from May 20th to May 26th.
-- Schedule a team meeting on June 5th at 3 PM for 2 hours. -> SCHEDULE,2024-06-05T15:00:00-07:00,2024-06-05T17:00:00-07:00,America/Los_Angeles,Team meeting,ENDMARKER Your team meeting has been scheduled on June 5th from 3 PM to 5 PM.
+- Schedule a team meeting on June 5th at 3 PM for 2 hours. -> SCHEDULE,2024-06-05T15:00:00-07:00,2024-06-05T17:00:00-07:00,America/Los_Angeles,Team meeting,meeting with the team,ENDMARKER Your team meeting has been scheduled on June 5th from 3 PM to 5 PM.
 - How's the weather today? -> Provide a general response.
 
 User input: 
 "#,
-        current_time = formatted_time
+        current_time = formatted_time,
+        timezone = tz
     )
 }
 
