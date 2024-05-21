@@ -1,8 +1,8 @@
-use kinode_process_lib::ProcessId;
 use kinode_process_lib::{
     await_message, call_init, get_blob, http, http::send_response, println, Address, Message,
     Request,
 };
+use kinode_process_lib::{get_state, set_state, ProcessId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -44,10 +44,7 @@ enum CalendarRequest {
     GenerateUrl { target: String },
     Token { token: String },
     AddApis(Tokens),
-    // temporary test commands
-    GetToday,
-    Schedule,
-    RefreshToken,
+    RefreshToken { target: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -61,14 +58,9 @@ struct Tokens {
 enum OauthResponse {
     GenerateUrl,
     Url { url: String },
-    RefreshToken { token: String },
     Error { error: String },
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-enum PrimitiveIntent {
-    Get,
-    Schedule,
+    // todo: remove, for manual refreshing request to oauth node
+    RefreshToken,
 }
 
 // for UI?
@@ -288,24 +280,12 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
             match res {
                 OauthResponse::Url { url } => {
                     println!("got url: {:?}", url);
+                    // todo remove, this mostly happens through http redirects.
                     // open url in browser
                     // or send to UI
                 }
                 _ => {}
             }
-        }
-        CalendarRequest::RefreshToken => {
-            let target: Address = Address::new::<String, ProcessId>(
-                "fake.dev".to_string(),
-                ProcessId::from_str("oauth:ratatouille:template.os")?,
-            );
-
-            let resp = Request::new()
-                .target(target)
-                .body(serde_json::to_vec(&CalendarRequest::RefreshToken)?)
-                .send_and_await_response(5)??;
-
-            let res = serde_json::from_slice::<OauthResponse>(resp.body())?;
         }
         CalendarRequest::AddApis(mut tokens) => {
             if let Some(telegram_token) = tokens.telegram.take() {
@@ -321,23 +301,49 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
                 state.groq_token = Some(groq_token.clone());
                 groq::init_groq(&groq_token)?;
             }
+            save(state);
+        }
+        CalendarRequest::RefreshToken { target } => {
+            // todo cleanup
+            let target: Address = Address::new::<String, ProcessId>(
+                target,
+                ProcessId::from_str("oauth:ratatouille:template.os")?,
+            );
+            let _ = Request::new()
+                .target(target)
+                .body(serde_json::to_vec(&OauthResponse::RefreshToken)?)
+                .send_and_await_response(5)?;
         }
         CalendarRequest::Token { token } => {
             // todo: verify if it's from the right place too.
             state.google_token = Some(token.clone());
             let timezone = get_timezone(&token)?;
             state.timezone = Some(timezone);
+            save(state);
         }
-        CalendarRequest::GetToday => {
-            if let Some(token) = &state.google_token {
-                let (time_min, time_max) = get_time_24h();
-                get_events_from_primary_calendar(token, &time_min, &time_max)?;
-            }
-        }
-        CalendarRequest::Schedule => if let Some(_) = &state.google_token {},
     };
 
     Ok(())
+}
+
+fn save(state: &State) {
+    let state = serde_json::to_vec(state).unwrap();
+    set_state(&state);
+}
+
+fn initialize() -> State {
+    if let Some(state) = get_state() {
+        let state = serde_json::from_slice(&state).unwrap();
+        return state;
+    }
+
+    State {
+        google_token: None,
+        telegram_token: None,
+        openai_token: None,
+        groq_token: None,
+        timezone: None,
+    }
 }
 
 call_init!(init);
@@ -349,13 +355,7 @@ fn init(our: Address) {
     http::bind_http_path("/generate", true, false).unwrap();
     http::bind_http_path("/submit_config", true, false).unwrap();
 
-    let mut state = State {
-        google_token: None,
-        telegram_token: None,
-        openai_token: None,
-        groq_token: None,
-        timezone: None,
-    };
+    let mut state = initialize();
 
     loop {
         match handle_message(&our, &mut state) {

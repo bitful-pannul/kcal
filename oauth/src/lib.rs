@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use kinode::process::standard::get_state;
 use kinode_process_lib::http::send_response;
 use kinode_process_lib::{
-    await_message, call_init, get_blob, http, println, timer, Address, Request, Response,
+    await_message, call_init, get_blob, http, println, set_state, timer, Address, Request, Response,
 };
 use oauth2::basic::BasicClient;
 use oauth2::{
@@ -382,7 +382,7 @@ fn initialize() -> State {
                 if let http::HttpServerRequest::Http(_req) = msg {
                     let body = get_blob().unwrap();
                     let init = serde_json::from_slice::<Initialize>(&body.bytes).unwrap();
-                    return State {
+                    let state = State {
                         inner: OauthState {
                             client_id: init.client_id,
                             client_secret: init.client_secret,
@@ -393,10 +393,12 @@ fn initialize() -> State {
                         tokens: HashMap::new(),
                         exchanges: HashMap::new(),
                     };
+                    set_state(&serde_json::to_vec(&state).unwrap());
+                    return state;
                 }
             }
             if let Ok(init) = serde_json::from_slice::<Initialize>(message.body()) {
-                return State {
+                let state = State {
                     inner: OauthState {
                         client_id: init.client_id,
                         client_secret: init.client_secret,
@@ -407,6 +409,9 @@ fn initialize() -> State {
                     tokens: HashMap::new(),
                     exchanges: HashMap::new(),
                 };
+                set_state(&serde_json::to_vec(&state).unwrap());
+
+                return state;
             }
         }
     }
