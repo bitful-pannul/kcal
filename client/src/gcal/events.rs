@@ -134,6 +134,36 @@ pub struct Event {
     pub query_string: QueryParams,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SimpleEvent {
+    pub title: String,
+    pub description: Option<String>,
+    pub start_time: String,
+    pub end_time: String,
+}
+
+impl From<&Event> for SimpleEvent {
+    fn from(event: &Event) -> Self {
+        SimpleEvent {
+            title: event
+                .summary
+                .clone()
+                .unwrap_or_else(|| "No title".to_string()),
+            description: event.description.clone(),
+            start_time: event
+                .start
+                .as_ref()
+                .and_then(|start| start.date_time.clone())
+                .unwrap_or_else(|| "No start time".to_string()),
+            end_time: event
+                .end
+                .as_ref()
+                .and_then(|end| end.date_time.clone())
+                .unwrap_or_else(|| "No end time".to_string()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum EventOfficeLocationType {

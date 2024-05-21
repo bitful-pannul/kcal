@@ -98,6 +98,28 @@
             border: 1px solid #ccc;
             border-radius: 5px;
         }
+
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 220px;
+            background-color: black;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px 0;
+            position: absolute;
+            z-index: 1;
+            bottom: 100%;
+            left: 50%;
+            margin-left: -110px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
     </style>
 </head>
 
@@ -127,8 +149,13 @@
         <div class="google-status">
             <h2>Google Auth</h2>
             <div id="status">Google API Status: Disconnected</div>
-            <input type="text" id="targetName" value="fake.dev">
-            <button onclick="connect()">Connect Gcal</button>
+            <div class="tooltip">
+                <input type="text" id="targetName" value="fake.dev"
+                    title="This is your OAuth provider. You can use a different provider, but we recommend the default!">
+                <span class="tooltiptext">This is your OAuth provider. You can use a different provider, but we
+                    recommend the default!</span>
+            </div>
+            <button onclick="connect()">Connect</button>
         </div>
     </div>
     <div class="prompts">

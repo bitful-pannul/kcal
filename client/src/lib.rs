@@ -1,37 +1,33 @@
-use std::collections::HashMap;
-use std::str::FromStr;
-
-use chrono::{Duration, Utc};
 use kinode_process_lib::ProcessId;
 use kinode_process_lib::{
     await_message, call_init, get_blob, http, http::send_response, println, Address, Message,
     Request,
 };
-
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::str::FromStr;
 
 mod gcal;
 mod groq;
+mod prompts;
 mod stt;
 mod tg;
 
 use gcal::helpers::*;
 use tg::*;
 
+use crate::gcal::SimpleEvent;
+use crate::prompts::{get_default_prompt, DEFAULT_PROMPT, EVENTS_PROMPT};
+
 pub const LLM_ADDRESS: (&str, &str, &str, &str) = ("our", "openai", "ratatouille", "template.os");
 pub const TG_ADDRESS: (&str, &str, &str, &str) = ("our", "tg", "ratatouille", "template.os");
 pub const STT_ADDRESS: (&str, &str, &str, &str) =
     ("our", "speech_to_text", "ratatouille", "template.os");
-// todo command_center extensibility!
 
 wit_bindgen::generate!({
     path: "wit",
     world: "process",
 });
-
-const prompt1: &str = "You are a smart calendar assistant. Your job is to help users manage their schedules by understanding their requests and providing precise calendar actions. You can schedule meetings, list events, and help plan the day efficiently. When a user sends a message, your goal is to interpret their needs and suggest the most relevant calendar actions.";
-const prompt2: &str = "Based on the user's request, please clarify the intention using the following formats. If the user wants to schedule one or more events, respond with 'Schedule: [Title], [Description], [Start Time in UTC], [Duration in hours]; ...' for each event. If the user wants to list events for today, respond with 'List: Today'. Ensure your responses are concise and strictly follow these formats for easy parsing by the system.";
-const prompt3: &str = "You are an efficient meeting summarizer. Your task is to list the names and times of the next meetings from the user's calendar. Please provide the meeting titles and their start times in UTC, formatted as 'Next Meetings: [Title] at [Start Time in UTC]; ...'. Ensure the response is clear and concise for easy parsing.";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct State {
@@ -39,7 +35,6 @@ pub struct State {
     pub telegram_token: Option<String>,
     pub openai_token: Option<String>,
     pub groq_token: Option<String>,
-    // expiry logic here or server? or fetch upon error?
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -83,91 +78,82 @@ enum CalendarResponse {
 }
 
 pub fn handle_telegram_message(message: &Message, state: &mut State) -> anyhow::Result<()> {
+    let Some(token) = &state.google_token else {
+        return Err(anyhow::anyhow!("No google token found"));
+    };
     let Some(msg) = get_last_tg_msg(&message) else {
         return Ok(());
     };
     let id = msg.chat.id;
     let mut text = msg.text.clone().unwrap_or_default();
 
+    // if voice_message, use STT process to transcribe
     if let Some(voice) = msg.voice.clone() {
         let audio = get_file(&voice.file_id)?;
         text += &get_text(audio)?;
     }
 
-    let initial_answer = groq::get_groq_answer(&format!("{} {}", prompt1, text))?;
-    println!("initial answer: {:?}", initial_answer);
-    let second_answer = groq::get_groq_answer(&format!("{} {}", prompt2, text))?;
-    println!("second answer: {:?}", second_answer);
-    match parse_intent(&second_answer) {
-        Ok(intent) => match intent {
-            PrimitiveIntent::Get => {
-                if let Some(token) = &state.google_token {
-                    let (time_min, time_max) = get_time_24h();
-                    let events = fetch_events_from_primary_calendar(token, &time_min, &time_max)?;
-                    let json_string = serde_json::to_string(&events)?;
+    let llm_answer = groq::get_groq_answer(&format!("{} {}", get_default_prompt(), text))?;
+    println!("initial answer: {:?}", llm_answer);
 
-                    let answer = groq::get_groq_answer(&format!("{} {}", prompt3, json_string))?;
-                    let _message = send_bot_message(&answer, id);
-                    return Ok(());
-                }
-            }
-            PrimitiveIntent::Schedule => {
-                if let Some(token) = &state.google_token {
-                    let start_time = Utc::now() + Duration::hours(2);
-                    let event = create_event("Coffee with Natasha", "", start_time, 1)?;
-                    add_event_to_calendar(token, &event)?;
-                    let _message = send_bot_message("Event scheduled successfully", id);
-                    return Ok(());
-                }
-            }
-        },
-        Err(e) => {}
-    }
+    let initial_answer = process_response(token, &llm_answer)?;
 
-    // let answer = get_groq_answer(&text)?;
     let _message = send_bot_message(&initial_answer, id);
     Ok(())
 }
 
-fn parse_intent(response: &str) -> anyhow::Result<PrimitiveIntent> {
-    // Logic to parse the initial LLM response to determine the intent
-    // temp mocked
-    if response.contains("schedule") {
-        Ok(PrimitiveIntent::Schedule)
-    } else if response.contains("list") {
-        Ok(PrimitiveIntent::Get)
-    } else {
-        Err(anyhow::anyhow!("Unrecognized intent"))
-    }
-}
+fn process_response(token: &str, response: &str) -> anyhow::Result<String> {
+    let cleaned_response = response
+        .trim()
+        .trim_matches('"')
+        .replace("\n", " ")
+        .replace("\r", " ");
+    println!("Cleaned response: {:?}", cleaned_response);
 
-// async fn handle_llm_response(response: String, state: &mut State) -> anyhow::Result<()> {
-//     if response.starts_with("Schedule:") {
-//         let events_details = response.trim_start_matches("Schedule: ").split(';');
-//         for details in events_details {
-//             let event_parts = details.split(',').collect::<Vec<_>>();
-//             if event_parts.len() == 4 {
-//                 let title = event_parts[0].trim();
-//                 let description = event_parts[1].trim();
-//                 let start_time =
-//                     Utc.datetime_from_str(event_parts[2].trim(), "%Y-%m-%dT%H:%M:%SZ")?;
-//                 let duration = event_parts[3].trim().parse::<i64>()?;
-//                 let event =
-//                     gcal::helpers::schedule_event(title, description, start_time, duration)?;
-//                 gcal::helpers::add_event_to_calendar(&state.google_token.unwrap(), &event)?;
-//             }
-//         }
-//     } else if response == "List: Today" {
-//         let (time_min, time_max) = gcal::helpers::get_time_24h();
-//         let events = gcal::helpers::fetch_events_from_primary_calendar(
-//             &state.google_token.unwrap(),
-//             &time_min,
-//             &time_max,
-//         )?;
-//         // Send events back to user or handle them as needed
-//     }
-//     Ok(())
-// }
+    if let Some((command, human_like_response)) = cleaned_response.split_once("ENDMARKER") {
+        let command = command.trim();
+        let human_like_response = human_like_response.trim();
+
+        if command.starts_with("LIST") {
+            let parts: Vec<&str> = command.split(',').collect();
+            if parts.len() < 4 {
+                return Err(anyhow::anyhow!("Invalid LIST command format"));
+            }
+            let start_date = parts[1].trim();
+            let end_date = parts[2].trim();
+            let timezone = parts[3].trim();
+
+            let events = get_events_from_primary_calendar(token, start_date, end_date)?;
+            let filtered_events = events
+                .items
+                .iter()
+                .map(|e| e.into())
+                .collect::<Vec<SimpleEvent>>();
+            println!("got some events: {:?}", filtered_events);
+
+            let llm_events =
+                groq::get_groq_answer(&format!("{} {:?}", EVENTS_PROMPT, filtered_events))?;
+
+            return Ok(llm_events);
+        } else if command.starts_with("SCHEDULE") {
+            let parts: Vec<&str> = command.split(',').collect();
+            if parts.len() < 5 {
+                return Err(anyhow::anyhow!("Invalid SCHEDULE command format"));
+            }
+            let start = parts[1].trim();
+            let end = parts[2].trim();
+            let timezone = parts[3].trim();
+            let description = parts[4].trim();
+            let summary = parts.get(5).map(|s| s.trim()).unwrap_or("Event");
+
+            let event = create_event(summary, description, start, end, Some(timezone.into()))?;
+            schedule_event(token, &event)?;
+            return Ok(human_like_response.to_string());
+        }
+    }
+
+    Ok(response.to_string())
+}
 
 fn handle_http_message(state: &mut State, req: &http::HttpServerRequest) -> anyhow::Result<()> {
     if let http::HttpServerRequest::Http(incoming) = req {
@@ -342,15 +328,10 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
         CalendarRequest::GetToday => {
             if let Some(token) = &state.google_token {
                 let (time_min, time_max) = get_time_24h();
-                fetch_events_from_primary_calendar(token, &time_min, &time_max)?;
+                get_events_from_primary_calendar(token, &time_min, &time_max)?;
             }
         }
-        CalendarRequest::Schedule => {
-            if let Some(token) = &state.google_token {
-                let event = create_event("Test Event", "This is a test event", Utc::now(), 1)?;
-                add_event_to_calendar(token, &event)?;
-            }
-        }
+        CalendarRequest::Schedule => if let Some(token) = &state.google_token {},
     };
 
     Ok(())
@@ -364,6 +345,7 @@ fn init(our: Address) {
     http::bind_http_path("/status", true, false).unwrap();
     http::bind_http_path("/generate", true, false).unwrap();
     http::bind_http_path("/submit_config", true, false).unwrap();
+
     let mut state = State {
         google_token: None,
         telegram_token: None,

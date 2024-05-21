@@ -1,5 +1,6 @@
 use crate::gcal::*;
 use chrono::{DateTime, Duration, Utc};
+use core::time;
 use kinode_process_lib::http;
 use std::{collections::HashMap, str::FromStr};
 use url::Url;
@@ -7,30 +8,29 @@ use url::Url;
 pub fn create_event(
     summary: &str,
     description: &str,
-    start_time: DateTime<Utc>,
-    duration_hours: i64,
+    start_time: &str,
+    end_time: &str,
+    timezone: Option<String>,
 ) -> anyhow::Result<Event> {
-    let end_time = start_time + Duration::hours(duration_hours);
-
     let event = Event {
         summary: Some(summary.to_string()),
         description: Some(description.to_string()),
         start: Some(EventCalendarDate {
             date: None,
-            date_time: Some(start_time.to_rfc3339()),
-            time_zone: None,
+            date_time: Some(start_time.to_string()),
+            time_zone: timezone.clone(),
         }),
         end: Some(EventCalendarDate {
-            date: None, // Set to None unless it's an all-day event
-            date_time: Some(end_time.to_rfc3339()),
-            time_zone: None,
+            date: None,
+            date_time: Some(end_time.to_string()),
+            time_zone: timezone,
         }),
         ..Default::default()
     };
     Ok(event)
 }
 
-pub fn add_event_to_calendar(token: &str, event: &Event) -> anyhow::Result<()> {
+pub fn schedule_event(token: &str, event: &Event) -> anyhow::Result<()> {
     let url = Url::from_str("https://www.googleapis.com/calendar/v3/calendars/primary/events")?;
     let headers = HashMap::from([
         ("Authorization".to_string(), format!("Bearer {}", token)),
@@ -52,7 +52,7 @@ pub fn add_event_to_calendar(token: &str, event: &Event) -> anyhow::Result<()> {
     }
 }
 
-pub fn fetch_events_from_primary_calendar(
+pub fn get_events_from_primary_calendar(
     token: &str,
     time_min: &str,
     time_max: &str,
@@ -69,9 +69,6 @@ pub fn fetch_events_from_primary_calendar(
 
     let res = http::send_request_await_response(http::Method::GET, url, Some(headers), 5, body)?;
 
-    // pure json to_string might be better to give to model
-    let _json: serde_json::Value = serde_json::from_slice(&res.body())?;
-
     let events: Events = serde_json::from_slice(&res.body())?;
 
     Ok(events)
@@ -87,18 +84,20 @@ pub fn get_time_24h() -> (String, String) {
     (time_min, time_max)
 }
 
-// NOTE: using "primary" calendar instead for now
-// pub fn list_calendars(token: &str) -> anyhow::Result<()> {
-//     let url =
-//         Url::from_str("https://www.googleapis.com/calendar/v3/users/me/calendarList").unwrap();
+pub fn get_primary_calendar(token: &str) -> anyhow::Result<calendar::Calendar> {
+    let url = Url::from_str("https://www.googleapis.com/calendar/v3/calendars/primary").unwrap();
 
-//     let headers = HashMap::from([
-//         ("Authorization".to_string(), format!("Bearer {}", token)),
-//         ("Content-Type".to_string(), "application/json".to_string()),
-//     ]);
-//     let body = Vec::new(); // No body for GET request
+    let headers = HashMap::from([
+        ("Authorization".to_string(), format!("Bearer {}", token)),
+        ("Content-Type".to_string(), "application/json".to_string()),
+    ]);
 
-//     let res = http::send_request_await_response(http::Method::GET, url, Some(headers), 5, body)?;
-//     let json: serde_json::Value = serde_json::from_slice(&res.body())?;
-//     Ok(())
-// }
+    let res = http::send_request_await_response(http::Method::GET, url, Some(headers), 5, vec![])?;
+    let cal: calendar::Calendar = serde_json::from_slice(&res.body())?;
+    Ok(cal)
+}
+
+pub fn get_timezone(token: &str) -> anyhow::Result<String> {
+    let primary_cal = get_primary_calendar(token)?;
+    Ok(primary_cal.time_zone)
+}
