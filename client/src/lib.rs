@@ -96,7 +96,6 @@ pub fn handle_telegram_message(message: &Message, state: &mut State) -> anyhow::
 
     let llm_answer =
         groq::get_groq_answer(&format!("{} {}", get_default_prompt(&state.timezone), text))?;
-    println!("initial answer: {:?}", llm_answer);
 
     let initial_answer = process_response(token, &llm_answer)?;
 
@@ -110,7 +109,6 @@ fn process_response(token: &str, response: &str) -> anyhow::Result<String> {
         .trim_matches('"')
         .replace("\n", " ")
         .replace("\r", " ");
-    println!("Cleaned response: {:?}", cleaned_response);
 
     if let Some((command, human_like_response)) = cleaned_response.split_once("ENDMARKER") {
         let command = command.trim();
@@ -123,7 +121,7 @@ fn process_response(token: &str, response: &str) -> anyhow::Result<String> {
             }
             let start_date = parts[1].trim();
             let end_date = parts[2].trim();
-            let timezone = parts[3].trim();
+            let _timezone = parts[3].trim();
 
             let events = get_events_from_primary_calendar(token, start_date, end_date)?;
             let filtered_events = events
@@ -131,7 +129,6 @@ fn process_response(token: &str, response: &str) -> anyhow::Result<String> {
                 .iter()
                 .map(|e| e.into())
                 .collect::<Vec<SimpleEvent>>();
-            println!("got some events: {:?}", filtered_events);
 
             let llm_events =
                 groq::get_groq_answer(&format!("{} {:?}", EVENTS_PROMPT, filtered_events))?;
@@ -309,7 +306,6 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
                 .send_and_await_response(5)??;
 
             let res = serde_json::from_slice::<OauthResponse>(resp.body())?;
-            println!("got response: {:?}", res);
         }
         CalendarRequest::AddApis(mut tokens) => {
             if let Some(telegram_token) = tokens.telegram.take() {
@@ -338,7 +334,7 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
                 get_events_from_primary_calendar(token, &time_min, &time_max)?;
             }
         }
-        CalendarRequest::Schedule => if let Some(token) = &state.google_token {},
+        CalendarRequest::Schedule => if let Some(_) = &state.google_token {},
     };
 
     Ok(())

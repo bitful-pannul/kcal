@@ -1,6 +1,6 @@
 use crate::{
     gcal::sendable::{AdditionalProperties, QueryParams, Sendable},
-    gcal::{CalendarAccessRole, DefaultReminder, SendUpdates},
+    gcal::{CalendarAccessRole, DefaultReminder},
 };
 use serde_derive::{Deserialize, Serialize};
 use std::collections::BTreeSet;

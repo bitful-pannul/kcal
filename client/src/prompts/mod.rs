@@ -1,8 +1,5 @@
 use chrono::{DateTime, SecondsFormat, Utc};
 use chrono_tz::Tz;
-use kinode_process_lib::println;
-use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
 
 pub fn get_default_prompt(timezone: &Option<String>) -> String {
     let tz: Tz = timezone
@@ -17,7 +14,6 @@ pub fn get_default_prompt(timezone: &Option<String>) -> String {
 
     let formatted_time = current_local_time.to_rfc3339_opts(SecondsFormat::Secs, true);
 
-    println!("formatted time!!! {:?}", formatted_time);
     format!(
         r#"
 You are an intelligent assistant that can help with calendar management and general queries. The current local time is {current_time} in {timezone}. Based on the user's input, respond in the following format and only return the specified format without any additional text or explanations:
@@ -77,30 +73,26 @@ Examples:
 Format the following events:
 "#;
 
-const prompt1: &str = "You are a smart calendar assistant. Your job is to help users manage their schedules by understanding their requests and providing precise calendar actions. You can schedule meetings, list events, and help plan the day efficiently. When a user sends a message, your goal is to interpret their needs and suggest the most relevant calendar actions.";
-const prompt2: &str = "Based on the user's request, please clarify the intention using the following formats. If the user wants to schedule one or more events, respond with 'Schedule: [Title], [Description], [Start Time in UTC], [Duration in hours]; ...' for each event. If the user wants to list events for today, respond with 'List: Today'. Ensure your responses are concise and strictly follow these formats for easy parsing by the system.";
-const prompt3: &str = "You are an efficient meeting summarizer. Your task is to list the names and times of the next meetings from the user's calendar. Please provide the meeting titles and their start times in UTC, formatted as 'Next Meetings: [Title] at [Start Time in UTC]; ...'. Ensure the response is clear and concise for easy parsing.";
+// Simple buffer for message handling.
+// TODO
+// #[derive(Serialize, Deserialize, Debug, Clone)]
+// struct Buffer<T> {
+//     capacity: usize,
+//     buffer: VecDeque<T>,
+// }
 
-/// Simple buffer for message handling.
-///
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct Buffer<T> {
-    capacity: usize,
-    buffer: VecDeque<T>,
-}
+// impl<T> Buffer<T> {
+//     fn new(capacity: usize) -> Self {
+//         Buffer {
+//             capacity,
+//             buffer: VecDeque::with_capacity(capacity),
+//         }
+//     }
 
-impl<T> Buffer<T> {
-    fn new(capacity: usize) -> Self {
-        Buffer {
-            capacity,
-            buffer: VecDeque::with_capacity(capacity),
-        }
-    }
-
-    fn push(&mut self, item: T) {
-        if self.buffer.len() == self.capacity {
-            self.buffer.pop_front();
-        }
-        self.buffer.push_back(item);
-    }
-}
+//     fn push(&mut self, item: T) {
+//         if self.buffer.len() == self.capacity {
+//             self.buffer.pop_front();
+//         }
+//         self.buffer.push_back(item);
+//     }
+// }

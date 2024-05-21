@@ -9,6 +9,7 @@ pub type AdditionalProperties = BTreeMap<String, String>;
 /// Sendable is the trait you must implement to interact with the Client. This object is received
 /// by the client and is used to construct the request URL as well as manage the (de)serialization
 /// of the object.
+#[allow(unused)]
 pub trait Sendable
 where
     Self: serde::Serialize,

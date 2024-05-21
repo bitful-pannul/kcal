@@ -83,7 +83,7 @@ pub fn get_time_24h() -> (String, String) {
     (time_min, time_max)
 }
 
-pub fn get_primary_calendar(token: &str) -> anyhow::Result<calendar::Calendar> {
+pub fn _get_primary_calendar(token: &str) -> anyhow::Result<calendar::Calendar> {
     let url = Url::from_str("https://www.googleapis.com/calendar/v3/calendars/primary").unwrap();
 
     let headers = HashMap::from([
