@@ -23,6 +23,8 @@ pub const LLM_ADDRESS: (&str, &str, &str, &str) = ("our", "openai", "kcal", "app
 pub const TG_ADDRESS: (&str, &str, &str, &str) = ("our", "tg", "kcal", "appattacc.os");
 pub const STT_ADDRESS: (&str, &str, &str, &str) = ("our", "speech_to_text", "kcal", "appattacc.os");
 
+const ICON: &str = include_str!("icon");
+
 wit_bindgen::generate!({
     path: "wit",
     world: "process",
@@ -353,6 +355,22 @@ fn init(our: Address) {
     http::bind_http_path("/status", true, false).unwrap();
     http::bind_http_path("/generate", true, false).unwrap();
     http::bind_http_path("/submit_config", true, false).unwrap();
+
+    Request::to(("our", "homepage", "homepage", "sys"))
+        .body(
+            serde_json::json!({
+                "Add": {
+                    "label": "Kcal",
+                    "icon": ICON,
+                    "path": "/", // just our root
+                }
+            })
+            .to_string()
+            .as_bytes()
+            .to_vec(),
+        )
+        .send()
+        .unwrap();
 
     let mut state = initialize();
 
