@@ -13,7 +13,7 @@ mod prompts;
 mod stt;
 mod tg;
 
-use gcal::helpers::*;
+use gcal::{helpers::*, EventAttendees};
 use tg::*;
 
 use crate::gcal::SimpleEvent;
@@ -87,6 +87,8 @@ pub fn handle_telegram_message(message: &Message, state: &mut State) -> anyhow::
         text += &get_text(audio)?;
     }
 
+    println!("msg user: {:?}", msg.from.clone());
+
     let llm_answer =
         groq::get_groq_answer(&format!("{} {}", get_default_prompt(&state.timezone), text))?;
 
@@ -141,8 +143,33 @@ fn process_response(token: &str, response: &str) -> anyhow::Result<String> {
                 .map(|s| s.trim())
                 .unwrap_or("No description provided");
 
-            let event = create_event(title, description, start, end, Some(timezone.into()))?;
-            schedule_event(token, &event)?;
+            let attendees = if let Some(attendees_str) = parts.get(6) {
+                attendees_str
+                    .trim_matches(&['[', ']'][..])
+                    .split(',')
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|email| EventAttendees {
+                        email: email.trim().to_string(),
+                        ..Default::default()
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                vec![]
+            };
+
+            let meeting = !attendees.is_empty();
+            println!("attendees: {:?}", attendees);
+            println!("meeting: {:?}", meeting);
+
+            let event = create_event(
+                title,
+                description,
+                start,
+                end,
+                Some(timezone.into()),
+                attendees,
+            )?;
+            schedule_event(token, &event, meeting)?;
             return Ok(human_like_response.to_string());
         }
     }

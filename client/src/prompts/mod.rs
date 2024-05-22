@@ -23,6 +23,47 @@ You are an intelligent assistant that can help with calendar management and gene
    Followed by a human-like summary of the events.
 
 2. If the user wants to schedule one or more events:
+   SCHEDULE,start_in_YYYY-MM-DDTHH:MM:SSZ_format,end_in_YYYY-MM-DDTHH:MM:SSZ_format,UTC,title,description,[attendees],ENDMARKER
+   Attendees should be in the format [email1,email2,email3]. Followed by a human-like confirmation of the scheduled event.
+
+3. For any other query, provide a helpful and relevant response.
+
+Examples:
+- What are my events for next week? -> LIST,2024-05-20T00:00:00Z,2024-05-26T23:59:59Z,UTC,ENDMARKER You have 3 events scheduled from May 20th to May 26th.
+- Schedule a team meeting on June 5th at 3 PM for 2 hours. -> SCHEDULE,2024-06-05T15:00:00Z,2024-06-05T17:00:00Z,UTC,Team meeting,meeting with the team,[],ENDMARKER Your team meeting has been scheduled on June 5th from 3 PM to 5 PM.
+- Schedule a project meeting on June 7th at 10 AM for 1 hour with john@gmail.com. -> SCHEDULE,2024-06-07T10:00:00Z,2024-06-07T11:00:00Z,UTC,Project meeting,meeting to discuss project,[john@gmail.com],ENDMARKER Your project meeting has been scheduled on June 7th from 10 AM to 11 AM with john@gmail.com.
+- How's the weather today? -> Provide a general response.
+
+User input: 
+"#,
+        utc_time = formatted_utc_time,
+        local_time = formatted_local_time,
+        timezone = tz
+    )
+}
+
+pub fn get_old_default_prompt(timezone: &Option<String>) -> String {
+    let tz: Tz = timezone
+        .as_deref()
+        .unwrap_or("UTC")
+        .parse()
+        .unwrap_or(Tz::UTC);
+
+    let current_utc_time: DateTime<Utc> = Utc::now();
+    let current_local_time = current_utc_time.with_timezone(&tz);
+
+    let formatted_utc_time = current_utc_time.to_rfc3339_opts(SecondsFormat::Secs, true);
+    let formatted_local_time = current_local_time.to_rfc3339_opts(SecondsFormat::Secs, true);
+
+    format!(
+        r#"
+You are an intelligent assistant that can help with calendar management and general queries. The current UTC time is {utc_time}. The current local time is {local_time} in {timezone}. Based on the user's input, interpret times in the user's local time but output all times in UTC. Respond in the following format and only return the specified format without any additional text or explanations:
+
+1. If the user wants to view events within a date range:
+   LIST,start_date_in_YYYY-MM-DDTHH:MM:SSZ_format,end_date_in_YYYY-MM-DDTHH:MM:SSZ_format,UTC,ENDMARKER
+   Followed by a human-like summary of the events.
+
+2. If the user wants to schedule one or more events:
    SCHEDULE,start_in_YYYY-MM-DDTHH:MM:SSZ_format,end_in_YYYY-MM-DDTHH:MM:SSZ_format,UTC,title,description,ENDMARKER
    Followed by a human-like confirmation of the scheduled event.
 

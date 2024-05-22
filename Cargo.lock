@@ -544,6 +544,7 @@ dependencies = [
  "kinode_process_lib 0.6.0 (git+https://github.com/kinode-dao/process_lib?rev=84b3d84)",
  "llm_interface",
  "oauth2",
+ "rand 0.8.5",
  "serde",
  "serde_derive",
  "serde_json",

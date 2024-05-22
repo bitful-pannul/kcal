@@ -10,7 +10,26 @@ pub fn create_event(
     start_time: &str,
     end_time: &str,
     timezone: Option<String>,
+    attendees: Vec<EventAttendees>,
 ) -> anyhow::Result<Event> {
+    let event_id = rand::random::<u64>().to_string();
+    let conference_data = if attendees.is_empty() {
+        None
+    } else {
+        Some(EventConferenceData {
+            create_request: Some(EventCreateConferenceRequest {
+                request_id: event_id,
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+    };
+    let attendees = if attendees.is_empty() {
+        None
+    } else {
+        Some(attendees)
+    };
+
     let event = Event {
         summary: Some(summary.to_string()),
         description: Some(description.to_string()),
@@ -24,17 +43,27 @@ pub fn create_event(
             date_time: Some(end_time.to_string()),
             time_zone: timezone,
         }),
+        attendees,
+        conference_data,
         ..Default::default()
     };
     Ok(event)
 }
 
-pub fn schedule_event(token: &str, event: &Event) -> anyhow::Result<()> {
-    let url = Url::from_str("https://www.googleapis.com/calendar/v3/calendars/primary/events")?;
+pub fn schedule_event(token: &str, event: &Event, schedule_meeting: bool) -> anyhow::Result<()> {
+    let base_url = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+    let url = if schedule_meeting {
+        Url::from_str(&format!("{}?conferenceDataVersion=1", base_url))?
+    } else {
+        Url::from_str(base_url)?
+    };
+    println!("schedule url: {:?}", url);
     let headers = HashMap::from([
         ("Authorization".to_string(), format!("Bearer {}", token)),
         ("Content-Type".to_string(), "application/json".to_string()),
     ]);
+
+    println!("event: {:?}", event);
 
     let body = serde_json::to_vec(event)?;
     let res = http::send_request_await_response(http::Method::POST, url, Some(headers), 30, body)?;

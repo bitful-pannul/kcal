@@ -375,9 +375,9 @@ pub enum EventConferenceEntryPointType {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct EventCreateConferenceRequest {
-    conference_solution_key: EventConferenceSolutionKey,
-    request_id: String,
-    status: EventConferenceStatus,
+    pub conference_solution_key: EventConferenceSolutionKey,
+    pub request_id: String,
+    pub status: EventConferenceStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
