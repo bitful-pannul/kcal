@@ -70,6 +70,8 @@ pub fn schedule_event(token: &str, event: &Event, schedule_meeting: bool) -> any
 
     if res.status().is_success() {
         println!("Event created successfully.");
+        let res_json: serde_json::Value = serde_json::from_slice(&res.body())?;
+        println!("Event response: {:?}", res_json);
         Ok(())
     } else {
         let err_msg = format!(

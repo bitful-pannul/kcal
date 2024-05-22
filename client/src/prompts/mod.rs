@@ -1,5 +1,6 @@
 use chrono::{DateTime, SecondsFormat, Utc};
 use chrono_tz::Tz;
+use kinode_process_lib::println;
 
 pub fn get_default_prompt(timezone: &Option<String>) -> String {
     let tz: Tz = timezone
@@ -7,38 +8,54 @@ pub fn get_default_prompt(timezone: &Option<String>) -> String {
         .unwrap_or("UTC")
         .parse()
         .unwrap_or(Tz::UTC);
+    println!("Parsed timezone: {:?}", tz);
 
     let current_utc_time: DateTime<Utc> = Utc::now();
-    let current_local_time = current_utc_time.with_timezone(&tz);
+    println!("Current UTC time: {:?}", current_utc_time);
 
     let formatted_utc_time = current_utc_time.to_rfc3339_opts(SecondsFormat::Secs, true);
-    let formatted_local_time = current_local_time.to_rfc3339_opts(SecondsFormat::Secs, true);
+    println!("Formatted UTC time: {}", formatted_utc_time);
 
     format!(
         r#"
-You are an intelligent assistant that can help with calendar management and general queries. The current UTC time is {utc_time}. The current local time is {local_time} in {timezone}. Based on the user's input, interpret times in the user's local time but output all times in UTC. Respond in the following format and only return the specified format without any additional text or explanations:
+You are an intelligent assistant that can help with calendar management and general queries.
+The current UTC time is {utc_time}.
+
+Instructions:
+1. Parse the user's input to understand their intent and extract relevant information.
+2. If the user provides any time-related information, assume it is in their local time zone "{timezone}".
+3. Convert all time-related information from the user's local time zone to UTC.
+4. Format all times in the YYYY-MM-DDTHH:MM:SSZ format.
+
+Respond in the following format and only return the specified format without any additional text or explanations:
 
 1. If the user wants to view events within a date range:
-   LIST,start_date_in_YYYY-MM-DDTHH:MM:SSZ_format,end_date_in_YYYY-MM-DDTHH:MM:SSZ_format,UTC,ENDMARKER
-   Followed by a human-like summary of the events.
+LIST,start_date_in_YYYY-MM-DDTHH:MM:SSZ_format,end_date_in_YYYY-MM-DDTHH:MM:SSZ_format,UTC,ENDMARKER
+Followed by a human-like summary of the events.
 
-2. If the user wants to schedule one or more events:
-   SCHEDULE,start_in_YYYY-MM-DDTHH:MM:SSZ_format,end_in_YYYY-MM-DDTHH:MM:SSZ_format,UTC,title,description,[attendees],ENDMARKER
-   Attendees should be in the format [email1,email2,email3]. Followed by a human-like confirmation of the scheduled event.
+2. If the user wants to schedule an event:
+SCHEDULE,start_in_YYYY-MM-DDTHH:MM:SSZ_format,end_in_YYYY-MM-DDTHH:MM:SSZ_format,UTC,title,description,[attendees],ENDMARKER
+Attendees should be in the format [email1,email2,email3].
+Followed by a human-like confirmation of the scheduled event.
 
 3. For any other query, provide a helpful and relevant response.
 
-Examples:
-- What are my events for next week? -> LIST,2024-05-20T00:00:00Z,2024-05-26T23:59:59Z,UTC,ENDMARKER You have 3 events scheduled from May 20th to May 26th.
-- Schedule a team meeting on June 5th at 3 PM for 2 hours. -> SCHEDULE,2024-06-05T15:00:00Z,2024-06-05T17:00:00Z,UTC,Team meeting,meeting with the team,[],ENDMARKER Your team meeting has been scheduled on June 5th from 3 PM to 5 PM.
-- Schedule a project meeting on June 7th at 10 AM for 1 hour with john@gmail.com. -> SCHEDULE,2024-06-07T10:00:00Z,2024-06-07T11:00:00Z,UTC,Project meeting,meeting to discuss project,[john@gmail.com],ENDMARKER Your project meeting has been scheduled on June 7th from 10 AM to 11 AM with john@gmail.com.
-- How's the weather today? -> Provide a general response.
+Assuming the current date is Wednesday, May 22, 2024, and the user's timezone is "America/Los_Angeles", here are some examples:
 
-User input: 
+Input: What's on my calendar for next week?
+Output:
+LIST,2024-05-27T00:00:00Z,2024-06-02T23:59:59Z,UTC,ENDMARKER
+You have 3 events scheduled from May 27th to June 2nd.
+
+Input: Schedule a dentist appointment today at 8pm.
+Output:
+SCHEDULE,2024-05-23T03:00:00Z,2024-05-23T04:00:00Z,UTC,Dentist Appointment,Regular checkup,[],ENDMARKER
+Your dentist appointment has been scheduled for today at 8:00 PM.
+
+User input:
 "#,
         utc_time = formatted_utc_time,
-        local_time = formatted_local_time,
-        timezone = tz
+        timezone = tz,
     )
 }
 
@@ -69,9 +86,10 @@ You are an intelligent assistant that can help with calendar management and gene
 
 3. For any other query, provide a helpful and relevant response.
 
-Examples:
+Examples (with the current time 2024-05-22T14:31:09-07:00 in local time and 2024-05-22T21:31:09Z in UTC.):
 - What are my events for next week? -> LIST,2024-05-20T00:00:00Z,2024-05-26T23:59:59Z,UTC,ENDMARKER You have 3 events scheduled from May 20th to May 26th.
-- Schedule a team meeting on June 5th at 3 PM for 2 hours. -> SCHEDULE,2024-06-05T15:00:00Z,2024-06-05T17:00:00Z,UTC,Team meeting,meeting with the team,ENDMARKER Your team meeting has been scheduled on June 5th from 3 PM to 5 PM.
+- Schedule a running session on June 5th at 3 PM local time for 2 hours. -> SCHEDULE,2024-06-05T22:00:00Z,2024-06-06T00:00:00Z,UTC,Running,2-hour running session,[],ENDMARKER Your running session has been scheduled on June 5th from 3 PM to 5 PM local time.
+- Schedule a project meeting on June 7th at 10 AM local time for 1 hour with john@gmail.com. -> SCHEDULE,2024-06-07T17:00:00Z,2024-06-07T18:00:00Z,UTC,Project meeting,meeting to discuss project,[john@gmail.com],ENDMARKER Your project meeting has been scheduled on June 7th from 10 AM to 11 AM local time with john@gmail.com.
 - How's the weather today? -> Provide a general response.
 
 User input: 
