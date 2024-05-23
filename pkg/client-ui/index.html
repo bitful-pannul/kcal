@@ -219,9 +219,10 @@
     <div class="prompts">
         <h2 onclick="togglePrompts()">Prompts <span class="arrow">&#9660;</span></h2>
         <div class="prompts-content" style="display: none;">
-            <!-- Placeholder for prompts content -->
-            <p>Edit and save pro mpts soon. Timezone formatting...</p>
-            <button>Save</button>
+            <h3>Scheduling Rules</h3>
+            <input type="text" id="schedulingRulesInput" placeholder="Enter new scheduling rules">
+            <button onclick="updateSchedulingRules()">Update Rules</button>
+            <p id="updateResult" style="color: green; display: none;">Rules updated successfully!</p>
         </div>
     </div>
 
@@ -255,6 +256,35 @@
             }
         }
 
+        function updateSchedulingRules() {
+            const newRules = document.getElementById('schedulingRulesInput').value;
+            fetch('/client:kcal:appattacc.os/prompt', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ new_prompt: newRules })
+            })
+                .then(response => {
+                    if (response.ok) {
+                        document.getElementById('updateResult').style.display = 'block';
+                        setTimeout(() => {
+                            document.getElementById('updateResult').style.display = 'none';
+                        }, 3000); // Hide the success message after 3 seconds
+                    } else {
+                        throw new Error('Failed to update scheduling rules');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error updating scheduling rules:', error);
+                    document.getElementById('updateResult').textContent = 'Failed to update rules.';
+                    document.getElementById('updateResult').style.color = 'red';
+                    setTimeout(() => {
+                        document.getElementById('updateResult').style.display = 'none';
+                    }, 3000); // Hide the error message after 3 seconds
+                });
+        }
+
         function pollStatus() {
             fetch(`/client:kcal:appattacc.os/status`)
                 .then(response => response.json())
@@ -269,6 +299,9 @@
                     updateKeyStatus('telegram', data.State.state.telegram_token);
                     updateKeyStatus('openai', data.State.state.openai_token);
                     updateKeyStatus('groq', data.State.state.groq_token);
+                    const schedulingRules = data.State && data.State.state && data.State.state.schedule_rules ? data.State.state.schedule_rules : '';
+                    document.getElementById('schedulingRulesInput').value = schedulingRules;
+
 
                     if (!googleConnected) {
                         setTimeout(pollStatus, 1000);

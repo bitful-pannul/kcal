@@ -3,7 +3,7 @@ use kinode_process_lib::{
     Request,
 };
 use kinode_process_lib::{get_state, set_state, ProcessId};
-use prompts::get_schedule_prompt;
+use prompts::{get_default_rules, get_schedule_prompt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -38,6 +38,7 @@ pub struct State {
     pub groq_token: Option<String>,
     pub timezone: Option<String>,
     pub user_id: Option<u64>,
+    pub schedule_rules: String, // could be an option too but we have defaults
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -113,9 +114,11 @@ pub fn handle_telegram_message(
 
                 let _message = send_bot_message(&initial_answer, id);
             } else {
+                let rules = &state.schedule_rules;
+
                 let llm_answer = groq::get_groq_answer(&format!(
                     "{} {}",
-                    get_schedule_prompt(&our, &state.timezone),
+                    get_schedule_prompt(&our, &state.timezone, &rules),
                     text
                 ))?;
 
@@ -208,6 +211,31 @@ fn handle_http_message(state: &mut State, req: &http::HttpServerRequest) -> anyh
 
             let headers =
                 HashMap::from([("Content-Type".to_string(), "application/json".to_string())]);
+            send_response(
+                http::StatusCode::OK,
+                Some(headers),
+                serde_json::to_vec(&CalendarResponse::State {
+                    state: state.clone(),
+                })?,
+            );
+        } else if incoming.path()? == "/prompt" {
+            // todo generalize
+            let Some(blob) = get_blob() else {
+                return Err(anyhow::anyhow!("Failed to get blob"));
+            };
+            let json = serde_json::from_slice::<serde_json::Value>(&blob.bytes)?;
+
+            let new_prompt = json
+                .get("new_prompt")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("Failed to get prompt"))?;
+
+            state.schedule_rules = new_prompt.to_string();
+            save(state);
+
+            let headers =
+                HashMap::from([("Content-Type".to_string(), "application/json".to_string())]);
+
             send_response(
                 http::StatusCode::OK,
                 Some(headers),
@@ -322,6 +350,7 @@ fn initialize() -> State {
                 groq_token: None,
                 timezone: None,
                 user_id: None,
+                schedule_rules: get_default_rules(),
             };
         }
     }
@@ -333,6 +362,7 @@ fn initialize() -> State {
         groq_token: None,
         timezone: None,
         user_id: None,
+        schedule_rules: get_default_rules(),
     }
 }
 
@@ -344,6 +374,7 @@ fn init(our: Address) {
     http::bind_http_path("/status", true, false).unwrap();
     http::bind_http_path("/generate", true, false).unwrap();
     http::bind_http_path("/submit_config", true, false).unwrap();
+    http::bind_http_path("/prompt", true, false).unwrap();
 
     Request::to(("our", "homepage", "homepage", "sys"))
         .body(
