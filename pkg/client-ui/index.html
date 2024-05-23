@@ -99,14 +99,19 @@
             border-radius: 5px;
         }
 
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+
         .tooltip .tooltiptext {
             visibility: hidden;
             width: 220px;
-            background-color: black;
-            color: #fff;
-            text-align: center;
+            background-color: #f4f4f9;
+            color: #333;
+            text-align: left;
             border-radius: 6px;
-            padding: 5px 0;
+            padding: 5px;
             position: absolute;
             z-index: 1;
             bottom: 100%;
@@ -114,6 +119,7 @@
             margin-left: -110px;
             opacity: 0;
             transition: opacity 0.3s;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
         }
 
         .tooltip:hover .tooltiptext {
@@ -130,18 +136,70 @@
             <h2>API Key Setup</h2>
             <div>
                 <label for="telegramKey">Telegram Bot Key:</label>
-                <input type="text" id="telegramKey" placeholder="Enter Telegram Bot Key">
-                <span id="telegramStatus" class="statusLight"></span>
+                <div style="display: flex; align-items: center;">
+                    <input type="text" id="telegramKey" placeholder="Enter Telegram Bot Key">
+                    <span id="telegramStatus" class="statusLight"></span>
+                    <div class="tooltip">
+                        <span style="margin-left: 5px; font-weight: bold; cursor: pointer;">?</span>
+                        <span class="tooltiptext">
+                            <ul>
+                                <li>- Open a Telegram chat with <a href="https://t.me/botfather"
+                                        target="_blank">@BotFather</a>.</li>
+                                <li>- Start a conversation and type `/newbot`.</li>
+                                <li>- Follow prompts to create a new bot.</li>
+                                <li>- Securely copy the HTTP API access token displayed.</li>
+                                <li>- Paste the token (API key) here.</li>
+                            </ul>
+                        </span>
+                    </div>
+                </div>
             </div>
             <div>
                 <label for="openaiKey">OpenAI API Key:</label>
-                <input type="text" id="openaiKey" placeholder="Enter OpenAI API Key">
-                <span id="openaiStatus" class="statusLight"></span>
+                <div style="display: flex; align-items: center;">
+                    <input type="text" id="openaiKey" placeholder="Enter OpenAI API Key">
+                    <span id="openaiStatus" class="statusLight"></span>
+                    <div class="tooltip">
+                        <span style="margin-left: 5px; font-weight: bold; cursor: pointer;">?</span>
+                        <span class="tooltiptext">
+                            <ul>
+                                <li>- Go to <a href="https://platform.openai.com" target="_blank">OpenAI Platform</a>
+                                    and sign in / sign up.</li>
+                                <li>- Go to <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI API
+                                        Keys</a>, and if prompted, verify your phone number.</li>
+                                <li>- Go to <a href="https://platform.openai.com/settings/organization/billing/overview"
+                                        target="_blank">OpenAI Billing</a> page, and see if you have any credits - if
+                                    not, add to credits balance.</li>
+                                <li>- Go back to <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI
+                                        API Keys</a>, and click "Create new secret key" to generate a key.</li>
+                                <li>- Click through until an API key is displayed.</li>
+                                <li>- Securely copy the API key.</li>
+                                <li>- Paste the API key here.</li>
+                            </ul>
+                        </span>
+                    </div>
+                </div>
             </div>
             <div>
                 <label for="groqKey">Groq API Key:</label>
-                <input type="text" id="groqKey" placeholder="Enter Groq API Key">
-                <span id="groqStatus" class="statusLight"></span>
+                <div style="display: flex; align-items: center;">
+                    <input type="text" id="groqKey" placeholder="Enter Groq API Key">
+                    <span id="groqStatus" class="statusLight"></span>
+                    <div class="tooltip">
+                        <span style="margin-left: 5px; font-weight: bold; cursor: pointer;">?</span>
+                        <span class="tooltiptext">
+                            <ul>
+                                <li>- Go to <a href="https://console.groq.com/keys">Groq API Keys</a> and sign in / sign
+                                    up.</li>
+                                <li>- Click "Create API Key" to generate a key.</li>
+                                <li>- Click through until an API key is displayed.</li>
+                                <li>- Give the key a name.</li>
+                                <li>- Securely copy the API key.</li>
+                                <li>- Paste the API key here.</li>
+                            </ul>
+                        </span>
+                    </div>
+                </div>
             </div>
             <button onclick="submitConfig()">Set API Keys</button>
             <p id="result"></p>
