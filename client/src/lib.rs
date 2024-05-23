@@ -3,6 +3,7 @@ use kinode_process_lib::{
     Request,
 };
 use kinode_process_lib::{get_state, set_state, ProcessId};
+use prompts::get_schedule_prompt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -13,11 +14,10 @@ mod prompts;
 mod stt;
 mod tg;
 
-use gcal::{helpers::*, EventAttendees};
+use gcal::helpers::*;
 use tg::*;
 
-use crate::gcal::SimpleEvent;
-use crate::prompts::{get_default_prompt, EVENTS_PROMPT};
+use crate::prompts::get_default_prompt;
 
 pub const LLM_ADDRESS: (&str, &str, &str, &str) = ("our", "openai", "kcal", "appattacc.os");
 pub const TG_ADDRESS: (&str, &str, &str, &str) = ("our", "tg", "kcal", "appattacc.os");
@@ -37,6 +37,7 @@ pub struct State {
     pub openai_token: Option<String>,
     pub groq_token: Option<String>,
     pub timezone: Option<String>,
+    pub user_id: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -71,7 +72,11 @@ enum CalendarResponse {
     Error { error: String },
 }
 
-pub fn handle_telegram_message(message: &Message, state: &mut State) -> anyhow::Result<()> {
+pub fn handle_telegram_message(
+    our: &Address,
+    message: &Message,
+    state: &mut State,
+) -> anyhow::Result<()> {
     let Some(token) = &state.google_token else {
         return Err(anyhow::anyhow!("No google token found"));
     };
@@ -87,94 +92,40 @@ pub fn handle_telegram_message(message: &Message, state: &mut State) -> anyhow::
         text += &get_text(audio)?;
     }
 
-    println!("msg user: {:?}", msg.from.clone());
-
-    let llm_answer =
-        groq::get_groq_answer(&format!("{} {}", get_default_prompt(&state.timezone), text))?;
-
-    let initial_answer = process_response(token, &llm_answer)?;
-
-    let _message = send_bot_message(&initial_answer, id);
-    Ok(())
-}
-
-fn process_response(token: &str, response: &str) -> anyhow::Result<String> {
-    let cleaned_response = response
-        .trim()
-        .trim_matches('"')
-        .replace("\n", " ")
-        .replace("\r", " ");
-
-    if let Some((command, human_like_response)) = cleaned_response.split_once("ENDMARKER") {
-        let command = command.trim();
-        let human_like_response = human_like_response.trim();
-
-        if command.starts_with("LIST") {
-            let parts: Vec<&str> = command.split(',').collect();
-            if parts.len() < 4 {
-                return Err(anyhow::anyhow!("Invalid LIST command format"));
-            }
-            let start_date = parts[1].trim();
-            let end_date = parts[2].trim();
-            let _timezone = parts[3].trim();
-
-            let events = get_events_from_primary_calendar(token, start_date, end_date)?;
-            let filtered_events = events
-                .items
-                .iter()
-                .map(|e| e.into())
-                .collect::<Vec<SimpleEvent>>();
-
-            let llm_events =
-                groq::get_groq_answer(&format!("{} {:?}", EVENTS_PROMPT, filtered_events))?;
-
-            return Ok(llm_events);
-        } else if command.starts_with("SCHEDULE") {
-            let parts: Vec<&str> = command.split(',').collect();
-            if parts.len() < 5 {
-                return Err(anyhow::anyhow!("Invalid SCHEDULE command format"));
-            }
-            let start = parts[1].trim();
-            let end = parts[2].trim();
-            let timezone = parts[3].trim();
-            let title = parts.get(4).map(|s| s.trim()).unwrap_or("Untitled Event");
-            let description = parts
-                .get(5)
-                .map(|s| s.trim())
-                .unwrap_or("No description provided");
-
-            let attendees = if let Some(attendees_str) = parts.get(6) {
-                attendees_str
-                    .trim_matches(&['[', ']'][..])
-                    .split(',')
-                    .filter(|s| !s.trim().is_empty())
-                    .map(|email| EventAttendees {
-                        email: email.trim().to_string(),
-                        ..Default::default()
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                vec![]
-            };
-
-            let meeting = !attendees.is_empty();
-            println!("attendees: {:?}", attendees);
-            println!("meeting: {:?}", meeting);
-
-            let event = create_event(
-                title,
-                description,
-                start,
-                end,
-                Some(timezone.into()),
-                attendees,
-            )?;
-            schedule_event(token, &event, meeting)?;
-            return Ok(human_like_response.to_string());
+    if state.user_id.is_none() {
+        if let Some(user) = &msg.from {
+            // if this is the first time we ever get contacted, assume it's the admin.
+            state.user_id = Some(user.id);
+            save(state);
         }
     }
 
-    Ok(response.to_string())
+    if let Some(user_id) = state.user_id {
+        if let Some(user) = &msg.from {
+            if user.id == user_id {
+                let llm_answer = groq::get_groq_answer(&format!(
+                    "{} {}",
+                    get_default_prompt(&state.timezone),
+                    text
+                ))?;
+
+                let initial_answer = process_response(token, &llm_answer)?;
+
+                let _message = send_bot_message(&initial_answer, id);
+            } else {
+                let llm_answer = groq::get_groq_answer(&format!(
+                    "{} {}",
+                    get_schedule_prompt(&our, &state.timezone),
+                    text
+                ))?;
+
+                let initial_answer = process_schedule_request(token, &llm_answer)?;
+                let _message = send_bot_message(&initial_answer, id);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn handle_http_message(state: &mut State, req: &http::HttpServerRequest) -> anyhow::Result<()> {
@@ -287,7 +238,7 @@ fn handle_message(our: &Address, state: &mut State) -> anyhow::Result<()> {
     tg_address.node = our.node.clone();
 
     if msg.source() == &tg_address {
-        handle_telegram_message(&msg, state)?;
+        handle_telegram_message(our, &msg, state)?;
         return Ok(());
     }
 
@@ -361,8 +312,18 @@ fn save(state: &State) {
 
 fn initialize() -> State {
     if let Some(state) = get_state() {
-        let state = serde_json::from_slice(&state).unwrap();
-        return state;
+        if let Ok(state) = serde_json::from_slice(&state) {
+            state
+        } else {
+            return State {
+                google_token: None,
+                telegram_token: None,
+                openai_token: None,
+                groq_token: None,
+                timezone: None,
+                user_id: None,
+            };
+        }
     }
 
     State {
@@ -371,6 +332,7 @@ fn initialize() -> State {
         openai_token: None,
         groq_token: None,
         timezone: None,
+        user_id: None,
     }
 }
 
