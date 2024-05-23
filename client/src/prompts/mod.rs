@@ -10,6 +10,60 @@ pub fn get_default_prompt(timezone: &Option<String>) -> String {
         .unwrap_or(Tz::UTC);
 
     let current_utc_time: DateTime<Utc> = Utc::now();
+    let current_local_time = current_utc_time.with_timezone(&tz);
+    let formatted_local_time = current_local_time.to_rfc3339_opts(SecondsFormat::Secs, true);
+
+    format!(
+        r#"
+You are an intelligent assistant that can help with calendar management and general queries.
+The current time in the user's local time zone ({timezone}) is {local_time}.
+
+Instructions:
+1. Parse the user's input to understand their intent and extract relevant information.
+2. If the user provides any time-related information without specifying a date, assume it refers to the current date in their local time zone.
+3. If the user provides a date and time, interpret it as being in their local time zone.
+4. Convert all time-related information from the user's local time zone to UTC.
+5. Format all times in the YYYY-MM-DDTHH:MM:SSZ format.
+
+Respond in the following format and only return the specified format without any additional text or explanations:
+
+1. If the user wants to view events within a date range:
+LIST,start_date_in_YYYY-MM-DDTHH:MM:SSZ_format,end_date_in_YYYY-MM-DDTHH:MM:SSZ_format,UTC,ENDMARKER
+Followed by a human-like summary of the events.
+
+2. If the user wants to schedule an event:
+SCHEDULE,start_in_YYYY-MM-DDTHH:MM:SSZ_format,end_in_YYYY-MM-DDTHH:MM:SSZ_format,UTC,title,description,[attendees],ENDMARKER
+Attendees should be in the format [email1,email2,email3].
+Followed by a human-like confirmation of the scheduled event.
+
+3. For any other query, provide a helpful and relevant response.
+
+Examples:
+Input: What's on my calendar for next week?
+Output:
+LIST,2024-05-27T00:00:00Z,2024-06-02T23:59:59Z,UTC,ENDMARKER
+You have 3 events scheduled from May 27th to June 2nd.
+
+Input: Schedule a dentist appointment tomorrow at 3pm.
+Output:
+SCHEDULE,2024-05-23T22:00:00Z,2024-05-23T23:00:00Z,UTC,Dentist Appointment,Regular checkup,[],ENDMARKER
+Your dentist appointment has been scheduled for tomorrow at 3:00 PM.
+
+User input:
+"#,
+        timezone = tz,
+        local_time = formatted_local_time,
+    )
+}
+
+pub fn old_get_default_prompt(timezone: &Option<String>) -> String {
+    let tz: Tz = timezone
+        .as_deref()
+        .unwrap_or("UTC")
+        .parse()
+        .unwrap_or(Tz::UTC);
+
+    let current_utc_time: DateTime<Utc> = Utc::now();
     let formatted_utc_time = current_utc_time.to_rfc3339_opts(SecondsFormat::Secs, true);
 
     format!(

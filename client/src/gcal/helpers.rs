@@ -190,9 +190,16 @@ pub fn process_response(token: &str, response: &str) -> anyhow::Result<String> {
                     .trim_matches(&['[', ']'][..])
                     .split(',')
                     .filter(|s| !s.trim().is_empty())
-                    .map(|email| EventAttendees {
-                        email: email.trim().to_string(),
-                        ..Default::default()
+                    .filter_map(|email| {
+                        let email = email.trim();
+                        if is_valid_email(email) {
+                            Some(EventAttendees {
+                                email: email.to_string(),
+                                ..Default::default()
+                            })
+                        } else {
+                            None
+                        }
                     })
                     .collect::<Vec<_>>()
             } else {
@@ -216,6 +223,12 @@ pub fn process_response(token: &str, response: &str) -> anyhow::Result<String> {
     }
 
     Ok(response.to_string())
+}
+
+fn is_valid_email(email: &str) -> bool {
+    let email_regex =
+        regex::Regex::new(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}$").unwrap();
+    email_regex.is_match(email)
 }
 
 pub fn get_events_from_primary_calendar(
